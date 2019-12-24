@@ -1,0 +1,82 @@
+! ============================================================================
+!
+! Flat Cisco ASA ACL
+!
+! sample_config.txt
+!
+! Copyright (c) 2019 joelob99
+!
+! Released under the MIT License, see LICENSE.txt.
+!
+! History
+!   2019-12-24: First Release.
+!
+! ============================================================================
+
+object network NETOBJ11
+ host 192.168.1.1
+object network NETOBJ21
+ range 10.1.0.1 10.1.0.100
+object network NETOBJ22
+ fqdn www.example.com
+object service SERVOBJ01
+ service tcp source range 10000 20000 destination eq https
+object-group network NETGRP11
+ network-object object NETOBJ11
+ network-object 192.168.2.0 255.255.255.0
+object-group network NETGRP12
+ network-object host 2001:db8:1111::1
+ group-object NETGRP11
+object-group network NETGRP21
+ network-object object NETOBJ21
+ network-object 2001:db8:aaaa::/64
+object-group network NETGRP22
+ network-object host 2001:db8:bbbb::1
+ group-object NETGRP21
+ network-object object NETOBJ22
+object-group service SERVGRP01
+ service-object udp destination eq syslog
+ service-object udp destination eq snmptrap
+object-group service SERVGRP02
+ service-object udp source range 20000 30000
+ group-object SERVGRP01
+object-group service SERVGRP03
+ service-object icmp6 unreachable 4
+object-group service PORTGRP01 tcp-udp
+ port-object eq domain
+ port-object eq 123
+object-group service PORTGRP02 tcp-udp
+ group-object PORTGRP01
+ port-object range 30000 31000
+object-group icmp-type ICMPGRP01
+ icmp-object echo
+ icmp-object echo-reply
+object-group icmp-type ICMPGRP02
+ group-object ICMPGRP01
+ icmp-object echo
+ icmp-object unreachable
+object-group protocol PROTGRP01
+ protocol-object tcp
+object-group protocol PROTGRP02
+ protocol-object icmp
+ protocol-object icmp6
+object-group protocol PROTGRP03
+ protocol-object ah
+ protocol-object esp
+ group-object PROTGRP02
+
+access-list ACL01 standard permit host 10.0.0.1
+access-list ACL01 standard deny any4
+access-list ACL02 extended permit ip host 192.168.0.1 host 10.0.0.1 log
+access-list ACL02 extended deny ip any any log
+access-list ACL02 extended permit ip object NETOBJ11 object-group NETGRP21
+access-list ACL02 extended permit object-group PROTGRP01 object-group NETGRP12 object-group NETGRP22 object-group PORTGRP02
+access-list ACL03 extended permit object-group PROTGRP03 any object NETOBJ21
+access-list ACL03 extended permit ip any any log inactive
+access-list ACL04 extended deny ip any any log inactive
+access-list ACL04 extended permit object-group PROTGRP02 any any object-group ICMPGRP02 log
+access-list ACL04 extended permit udp 2001:db8::1/128 2001:db8:aaaa::/64 log
+access-list ACL05 extended deny ip any any6 log
+access-list ACL05 extended permit ip any object NETOBJ22 log inactive
+access-list ACL05 extended permit object-group SERVGRP02 any any log
+access-list ACL05 extended permit object-group SERVGRP03 any6 any6 log

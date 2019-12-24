@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+
+<meta charset="utf-8">
+
+<!--
+/*!
+* ============================================================================
+*
+* Flat Cisco ASA ACL
+*
+* flatAsaAcl.html
+*
+* Copyright (c) 2019 joelob99
+*
+* Released under the MIT License, see LICENSE.txt.
+*
+* History
+*   2019-12-24: First Release.
+*
+* ============================================================================
+*/
+-->
+
+<link rel="stylesheet" title="" media="all" type="text/css" href="flatAcl.css">
+
+</head>
+
+<body>
+
+<p class="warranty">No warranty of any kind: use at your own risk</p>
+
+<hr>
+
+<h1>Flat Cisco ASA ACL</h1>
+
+<p>This script flattens ACL of the Cisco ASA configuration. Please follow the steps below.</p>
+<p><b>Limitation:</b>
+<ul>
+<li>Extended and standard ACL types are supported. EtherType and webtype ACL types are not supported.</li>
+<li>IP Address-Based, FQDN-Based, TCP-Based, UDP-Based, and ICMP-Based are supported in an extended ACE. User-Based and Security Group-Based are not supported.</li>
+<li>IP, ICMP, ICMP6, TCP, and UDP protocols are supported. Though other protocols are not supported, its names are converted to the number.</li>
+<li>NAT is not supported. Also, the nat type of network object is not supported.</li>
+<li>In lookup, the deny ACL, which is IPv4 to any4 and IPv6 to any6, is not interpreted as ineffectual due to the traffic from IPv4 to IPv6 and from IPv6 to IPv4 are considered.</li>
+<li>FQDN is not resolved to its IP address when lookup. Therefore, it can not be recognized whether FQDN is within the IP segment or the IP range.</li>
+</ul>
+</p>
+
+<h2>Step 1 - Select the configuration file.</h2>
+
+<p>Select the configuration file to flatten.</p>
+<form name="FileContent">
+<div><label for="select_config" class="label_input_file">Choose File<input type="file" id="select_config" style="display: none;"></label><input type="text" id="config_filename" readonly class="filename"></div>
+<div><span id="progress_reading" class="blink_progress"></span></div>
+<textarea name="text_config" rows="10" readonly style="background-color: whitesmoke;"></textarea>
+</form>
+
+<hr>
+
+<h2>Step 2 - Flatten the configuration.</h2>
+
+<p>Select the following options and click the 'RUN' button.</p>
+
+<form name="FlattenContent">
+<div><input type="checkbox" id="flatten_network"  name="flatten_network"  checked><label for="flatten_network">Flatten network objects and network object-groups.</label></div>
+<div><input type="checkbox" id="flatten_protocol" name="flatten_protocol"        ><label for="flatten_protocol">Flatten protocol object-groups.</label></div>
+<div><input type="checkbox" id="flatten_service"  name="flatten_service"         ><label for="flatten_service">Flatten service objects and service object-groups.</label></div>
+<div><input type="checkbox" id="flatten_port"     name="flatten_port"            ><label for="flatten_port">Flatten port object-groups.</label></div>
+<div><input type="checkbox" id="flatten_icmptype" name="flatten_icmptype"        ><label for="flatten_icmptype">Flatten icmp-type object-groups.</label></div>
+<button type="button" id="run">RUN</button>
+<span id="progress_flattening" class="blink_progress"></span>
+
+<p>Network objects and Network object-groups</p>
+<textarea name="network_address" rows="10" readonly style="background-color: whitesmoke;"></textarea>
+<p>Normalized ACL</p>
+<textarea name="normalized_acl" rows="10" readonly style="background-color: whitesmoke;"></textarea>
+<p>Flattened ACL (flattened only network objects and network object-groups)</p>
+<textarea name="flattened_acl_network" rows="10" readonly style="background-color: whitesmoke;"></textarea>
+<p>Flattened ACL</p>
+<textarea name="flattened_acl_all" rows="10" readonly style="background-color: whitesmoke;"></textarea>
+</form>
+
+<hr>
+
+<h2>Step 3 - Look up the IP address.</h2>
+
+<p>Confirms whether IP address and FQDN match in ACL.
+Enter the address list or select the address list file, and click the 'LOOKUP' button.
+</p>
+
+<form name="LookupContent">
+<div>
+<div><label for="select_lookup" class="label_input_file">Choose File<input type="file" id="select_lookup" style="display: none;"></label><input type="text" id="lookup_filename" readonly class="filename"></div>
+<textarea name="lookup_list" rows="10">
+# Here is an example of the address list.
+#
+# Format:
+#   Source Address,Destination Address[,Comment]
+#
+#   A comma is required as the separator.
+#   The prefix length is required for the IP address.
+#
+# Examples when look up only source address. It needs a comma at the end.
+192.168.0.1/32,,from IPv4 host
+192.168.1.0/24,,from IPv4 subnet
+2001:db8:1:2::101/128,,from IPv6 host
+2001:db8:1:2::/64,,from IPv6 subnet
+www.example.com,,from FQDN
+
+# Examples when look up only destination address. It needs a comma at the start.
+,192.168.0.1/32,to IPv4 host
+,192.168.1.0/24,to IPv4 subnet
+,2001:db8:1:2::101/128,to IPv6 host
+,2001:db8:1:2::/64,to IPv6 subnet
+,www.example.com,to FQDN
+
+# Examples when look up both of source and destination.
+192.168.0.1/32,10.0.0.1/32,from IPv4 host to IPv4 host
+192.168.0.1/32,10.10.0.0/16,from IPv4 host to IPv4 subnet
+2001:db8:1:2::101/128,2001:db8:1000:2000::201/128,from IPv6 host to IPv6 host
+2001:db8:1:2::101/128,2001:db8:1000:2000::/64,from IPv6 host to IPv6 subnet
+192.168.0.1/32,www.example.com,from IPv4 host to FQDN
+
+# Examples when not look up.
+192.168.0.1,,The prefix length is missing.
+192.168.0.1/32  The column is too few.
+</textarea>
+</div>
+<button type="button" id="lookup">LOOKUP</button>
+<span id="progress_searching" class="blink_progress"></span>
+
+<p>Matched entries</p>
+<textarea name="lookup_result" rows="10" readonly style="background-color: whitesmoke;"></textarea>
+<p>Matched entries (exclued ineffectual entries)</p>
+<textarea name="lookup_resultEI" rows="10" readonly style="background-color: whitesmoke;"></textarea>
+</form>
+
+<script>
+const FLAT_ACL_FILE_NAME = 'flatAsaAcl.js';
+
+const MSG_MAKE_LIST  = 1;
+const MSG_MADE_LIST  = 2;
+const MSG_NORMALIZE  = 3;
+const MSG_NORMALIZED = 4;
+const MSG_FLATTEN    = 5;
+const MSG_FLATTENED  = 6;
+const MSG_LOOKUP     = 7;
+const MSG_LOOKEDUP   = 8;
+
+let workerFlatAcl = null;
+
+/**
+* This function creates the worker thread.
+*/
+function createWorker() {
+    deleteWorker();
+
+    if (window.Worker) {
+        const strFlatAclUrl = window.location.href.replace(/\/[^\/]*$/, '/') + FLAT_ACL_FILE_NAME;
+        const brobFlatAcl = new Blob([`importScripts("${strFlatAclUrl}");`], {type: 'application/javascript'});
+        workerFlatAcl = new Worker(URL.createObjectURL(brobFlatAcl));
+    } else {
+        alert('Browser doesn\'t support web workers.');
+    }
+}
+
+/**
+* This function deletes the worker thread.
+*/
+function deleteWorker() {
+    if (workerFlatAcl != null) {
+        workerFlatAcl.terminate();
+    }
+    workerFlatAcl = null;
+}
+
+/**
+* This function retrieves the file name string from the full path string or
+* the file name string and returns the retrieved string.
+*
+* @param {string}
+*   strFileNameOrFullPath
+*       Chrome: full path string
+*       Firefox: file name string
+* @return {string} file name string
+*/
+function getFileName(strFileNameOrFullPath) {
+    const array = strFileNameOrFullPath.replace(/[\\]/g, '/').match(/\/([^\/]*)$/);
+    return (array ? array[1] : strFileNameOrFullPath);
+}
+
+/**
+* This is the main function.
+*/
+function main() {
+    document.FileContent.text_config.value = '';
+    document.FlattenContent.network_address.value = '';
+
+    if (workerFlatAcl != null) {
+        /**
+        * This function handles responses from the worker thread and updates the
+        * browser screen. Also, it sends the next request, depending on the response.
+        *
+        * @param {Object} e : MessageEvent object from the worker thread.
+        */
+        workerFlatAcl.onmessage = function(e) {
+            if (e.data[0]) {
+                switch (e.data[0]) {
+                case MSG_MADE_LIST:
+                    document.getElementById('progress_flattening').textContent = 'In normalizing...';
+                    document.FlattenContent.network_address.value = e.data[1] + e.data[2];
+                    workerFlatAcl.postMessage([
+                        MSG_NORMALIZE,
+                        document.FileContent.text_config.value,
+                    ]);
+                    break;
+                case MSG_NORMALIZED:
+                    document.getElementById('progress_flattening').textContent = 'In flattening...';
+                    document.FlattenContent.normalized_acl.value = e.data[1];
+                    workerFlatAcl.postMessage([
+                        MSG_FLATTEN,
+                        document.FlattenContent.flatten_network.checked,
+                        document.FlattenContent.flatten_protocol.checked,
+                        document.FlattenContent.flatten_service.checked,
+                        document.FlattenContent.flatten_port.checked,
+                        document.FlattenContent.flatten_icmptype.checked,
+                    ]);
+                    break;
+                case MSG_FLATTENED:
+                    document.FlattenContent.flattened_acl_all.value = e.data[1];
+                    document.FlattenContent.flattened_acl_network.value = e.data[2];
+                    document.getElementById('progress_flattening').textContent = '';
+                    break;
+                case MSG_LOOKEDUP:
+                    document.LookupContent.lookup_result.value = e.data[1];
+                    document.LookupContent.lookup_resultEI.value = e.data[2];
+                    document.getElementById('progress_searching').textContent = '';
+                    break;
+                }
+            } else {
+                console.warn('BROWSER: Received an invalid message.');
+            }
+        };
+
+        const fileReaderConfig = new FileReader();
+        const fileReaderLookup = new FileReader();
+
+        document.getElementById('select_config').addEventListener('change', function(evtChange) {
+            document.getElementById('progress_reading').textContent = 'In reading configuration...';
+
+            const file = evtChange.target.files;
+            fileReaderConfig.readAsText(file[0]);
+            fileReaderConfig.onload = function(evtOnLoad) {
+                document.FileContent.text_config.value = fileReaderConfig.result;
+                document.getElementById('config_filename').value = getFileName(document.getElementById('select_config').value);
+                document.getElementById('select_config').value = '';
+                document.getElementById('progress_reading').textContent = '';
+            };
+        });
+
+        document.getElementById('run').addEventListener('click', function(evtClick) {
+            if (fileReaderConfig.result !== '') {
+                document.getElementById('progress_flattening').textContent = 'In parsing...';
+                document.FlattenContent.network_address.value = '';
+                document.FlattenContent.normalized_acl.value = '';
+                document.FlattenContent.flattened_acl_network.value = '';
+                document.FlattenContent.flattened_acl_all.value = '';
+
+                workerFlatAcl.postMessage([
+                    MSG_MAKE_LIST,
+                    document.FileContent.text_config.value,
+                ]);
+            }
+        });
+
+        document.getElementById('select_lookup').addEventListener('change', function(evtChange) {
+            const file = evtChange.target.files;
+            fileReaderLookup.readAsText(file[0]);
+            fileReaderLookup.onload = function(evtOnLoad) {
+                document.LookupContent.lookup_list.value = fileReaderLookup.result;
+                document.getElementById('lookup_filename').value = getFileName(document.getElementById('select_lookup').value);
+                document.getElementById('select_lookup').value = '';
+            };
+        });
+
+        document.getElementById('lookup').addEventListener('click', function(evtClick) {
+            if (fileReaderLookup.result !== '') {
+                document.getElementById('progress_searching').textContent = 'In searching...';
+                document.LookupContent.lookup_result.value = '';
+                document.LookupContent.lookup_resultEI.value = '';
+                workerFlatAcl.postMessage([
+                    MSG_LOOKUP,
+                    document.LookupContent.lookup_list.value,
+                ]);
+            }
+        });
+    }
+}
+
+/**
+* This function registers the 'beforeunload' event listener.
+*/
+window.addEventListener('beforeunload', (event) => {
+    deleteWorker();
+});
+
+/**
+* This function creates the worker thread and then runs the main function.
+*/
+window.onload = function() {
+    createWorker();
+    main();
+};
+</script>
+
+</body>
+</html>
