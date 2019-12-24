@@ -4,11 +4,13 @@
 
 ## Summary
 
-This script flattens ACL in the Cisco ASA configuration. Also, it can look up the specified addresses in the flattened ACL to confirm whether the addresses match.
+Because complicate ACL can not understand easy, often desired simple ACL. This script flattens ACL in the Cisco ASA configuration. Also, it can look up the specified addresses in the flattened ACL to confirm whether the addresses match.
+
+Note that the ACL flattened can not input to Cisco ASA. It is to make complicate ACL easy to understand.
 
 ## Getting Started
 
-Open flatAsaAcl.html on Firefox or Chrome, and follows the steps described in the html file.
+Open flatAsaAcl.html on Firefox or Chrome, and follows the steps described on the page.
 
 ## Flattened ACL
 
