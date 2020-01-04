@@ -1,63 +1,63 @@
-ACL01,standard,permit,ip,0.0.0.0/0,-/-,10.0.0.1/32,-/-,-/-,active
-ACL01,standard,deny,ip,0.0.0.0/0,-/-,0.0.0.0/0,-/-,-/-,active
-ACL02,extended,permit,ip,192.168.0.1/32,-/-,10.0.0.1/32,-/-,-/-,active
-ACL02,extended,deny,ip,0/0,-/-,0/0,-/-,-/-,active
-ACL02,extended,permit,ip,192.168.1.1/32,-/-,10.1.0.1-10.1.0.100,-/-,-/-,active
-ACL02,extended,permit,ip,192.168.1.1/32,-/-,2001:0db8:aaaa:0000:0000:0000:0000:0000/64,-/-,-/-,active
-ACL02,extended,permit,6,2001:0db8:1111:0000:0000:0000:0000:0001/128,eq/any,2001:0db8:bbbb:0000:0000:0000:0000:0001/128,eq/53,-/-,active
-ACL02,extended,permit,6,2001:0db8:1111:0000:0000:0000:0000:0001/128,eq/any,2001:0db8:bbbb:0000:0000:0000:0000:0001/128,eq/123,-/-,active
-ACL02,extended,permit,6,2001:0db8:1111:0000:0000:0000:0000:0001/128,eq/any,2001:0db8:bbbb:0000:0000:0000:0000:0001/128,range/30000-31000,-/-,active
-ACL02,extended,permit,6,2001:0db8:1111:0000:0000:0000:0000:0001/128,eq/any,10.1.0.1-10.1.0.100,eq/53,-/-,active
-ACL02,extended,permit,6,2001:0db8:1111:0000:0000:0000:0000:0001/128,eq/any,10.1.0.1-10.1.0.100,eq/123,-/-,active
-ACL02,extended,permit,6,2001:0db8:1111:0000:0000:0000:0000:0001/128,eq/any,10.1.0.1-10.1.0.100,range/30000-31000,-/-,active
-ACL02,extended,permit,6,2001:0db8:1111:0000:0000:0000:0000:0001/128,eq/any,2001:0db8:aaaa:0000:0000:0000:0000:0000/64,eq/53,-/-,active
-ACL02,extended,permit,6,2001:0db8:1111:0000:0000:0000:0000:0001/128,eq/any,2001:0db8:aaaa:0000:0000:0000:0000:0000/64,eq/123,-/-,active
-ACL02,extended,permit,6,2001:0db8:1111:0000:0000:0000:0000:0001/128,eq/any,2001:0db8:aaaa:0000:0000:0000:0000:0000/64,range/30000-31000,-/-,active
-ACL02,extended,permit,6,2001:0db8:1111:0000:0000:0000:0000:0001/128,eq/any,www.example.com,eq/53,-/-,active
-ACL02,extended,permit,6,2001:0db8:1111:0000:0000:0000:0000:0001/128,eq/any,www.example.com,eq/123,-/-,active
-ACL02,extended,permit,6,2001:0db8:1111:0000:0000:0000:0000:0001/128,eq/any,www.example.com,range/30000-31000,-/-,active
-ACL02,extended,permit,6,192.168.1.1/32,eq/any,2001:0db8:bbbb:0000:0000:0000:0000:0001/128,eq/53,-/-,active
-ACL02,extended,permit,6,192.168.1.1/32,eq/any,2001:0db8:bbbb:0000:0000:0000:0000:0001/128,eq/123,-/-,active
-ACL02,extended,permit,6,192.168.1.1/32,eq/any,2001:0db8:bbbb:0000:0000:0000:0000:0001/128,range/30000-31000,-/-,active
-ACL02,extended,permit,6,192.168.1.1/32,eq/any,10.1.0.1-10.1.0.100,eq/53,-/-,active
-ACL02,extended,permit,6,192.168.1.1/32,eq/any,10.1.0.1-10.1.0.100,eq/123,-/-,active
-ACL02,extended,permit,6,192.168.1.1/32,eq/any,10.1.0.1-10.1.0.100,range/30000-31000,-/-,active
-ACL02,extended,permit,6,192.168.1.1/32,eq/any,2001:0db8:aaaa:0000:0000:0000:0000:0000/64,eq/53,-/-,active
-ACL02,extended,permit,6,192.168.1.1/32,eq/any,2001:0db8:aaaa:0000:0000:0000:0000:0000/64,eq/123,-/-,active
-ACL02,extended,permit,6,192.168.1.1/32,eq/any,2001:0db8:aaaa:0000:0000:0000:0000:0000/64,range/30000-31000,-/-,active
-ACL02,extended,permit,6,192.168.1.1/32,eq/any,www.example.com,eq/53,-/-,active
-ACL02,extended,permit,6,192.168.1.1/32,eq/any,www.example.com,eq/123,-/-,active
-ACL02,extended,permit,6,192.168.1.1/32,eq/any,www.example.com,range/30000-31000,-/-,active
-ACL02,extended,permit,6,192.168.2.0/24,eq/any,2001:0db8:bbbb:0000:0000:0000:0000:0001/128,eq/53,-/-,active
-ACL02,extended,permit,6,192.168.2.0/24,eq/any,2001:0db8:bbbb:0000:0000:0000:0000:0001/128,eq/123,-/-,active
-ACL02,extended,permit,6,192.168.2.0/24,eq/any,2001:0db8:bbbb:0000:0000:0000:0000:0001/128,range/30000-31000,-/-,active
-ACL02,extended,permit,6,192.168.2.0/24,eq/any,10.1.0.1-10.1.0.100,eq/53,-/-,active
-ACL02,extended,permit,6,192.168.2.0/24,eq/any,10.1.0.1-10.1.0.100,eq/123,-/-,active
-ACL02,extended,permit,6,192.168.2.0/24,eq/any,10.1.0.1-10.1.0.100,range/30000-31000,-/-,active
-ACL02,extended,permit,6,192.168.2.0/24,eq/any,2001:0db8:aaaa:0000:0000:0000:0000:0000/64,eq/53,-/-,active
-ACL02,extended,permit,6,192.168.2.0/24,eq/any,2001:0db8:aaaa:0000:0000:0000:0000:0000/64,eq/123,-/-,active
-ACL02,extended,permit,6,192.168.2.0/24,eq/any,2001:0db8:aaaa:0000:0000:0000:0000:0000/64,range/30000-31000,-/-,active
-ACL02,extended,permit,6,192.168.2.0/24,eq/any,www.example.com,eq/53,-/-,active
-ACL02,extended,permit,6,192.168.2.0/24,eq/any,www.example.com,eq/123,-/-,active
-ACL02,extended,permit,6,192.168.2.0/24,eq/any,www.example.com,range/30000-31000,-/-,active
-ACL03,extended,permit,51,0/0,-/-,10.1.0.1-10.1.0.100,-/-,-/-,active
-ACL03,extended,permit,50,0/0,-/-,10.1.0.1-10.1.0.100,-/-,-/-,active
-ACL03,extended,permit,1,0/0,-/-,10.1.0.1-10.1.0.100,-/-,-/-,active
-ACL03,extended,permit,58,0/0,-/-,10.1.0.1-10.1.0.100,-/-,-/-,active
-ACL03,extended,permit,ip,0/0,-/-,0/0,-/-,-/-,inactive
-ACL04,extended,deny,ip,0/0,-/-,0/0,-/-,-/-,inactive
-ACL04,extended,permit,1,0/0,-/-,0/0,-/-,8/any,active
-ACL04,extended,permit,1,0/0,-/-,0/0,-/-,0/any,active
-ACL04,extended,permit,1,0/0,-/-,0/0,-/-,8/any,active
-ACL04,extended,permit,1,0/0,-/-,0/0,-/-,3/any,active
-ACL04,extended,permit,58,0/0,-/-,0/0,-/-,8/any,active
-ACL04,extended,permit,58,0/0,-/-,0/0,-/-,0/any,active
-ACL04,extended,permit,58,0/0,-/-,0/0,-/-,8/any,active
-ACL04,extended,permit,58,0/0,-/-,0/0,-/-,3/any,active
-ACL04,extended,permit,17,2001:0db8:0000:0000:0000:0000:0000:0001/128,eq/any,2001:0db8:aaaa:0000:0000:0000:0000:0000/64,eq/any,-/-,active
-ACL05,extended,deny,ip,0/0,-/-,0000:0000:0000:0000:0000:0000:0000:0000/0,-/-,-/-,active
-ACL05,extended,permit,ip,0/0,-/-,www.example.com,-/-,-/-,inactive
-ACL05,extended,permit,17,0/0,range/20000-30000,0/0,eq/any,-/-,active
-ACL05,extended,permit,17,0/0,eq/any,0/0,eq/514,-/-,active
-ACL05,extended,permit,17,0/0,eq/any,0/0,eq/162,-/-,active
-ACL05,extended,permit,58,0000:0000:0000:0000:0000:0000:0000:0000/0,-/-,0000:0000:0000:0000:0000:0000:0000:0000/0,-/-,3/4,active
+ACL01,1,standard,permit,ip,0.0.0.0/0,-/-,10.0.0.1/32,-/-,-/-,active,access-list ACL01 line 1 standard permit host 10.0.0.1
+ACL01,2,standard,deny,ip,0.0.0.0/0,-/-,0.0.0.0/0,-/-,-/-,active,access-list ACL01 line 2 standard deny any4
+ACL02,1,extended,permit,ip,192.168.0.1/32,-/-,10.0.0.1/32,-/-,-/-,active,access-list ACL02 line 1 extended permit ip host 192.168.0.1 host 10.0.0.1
+ACL02,2,extended,deny,ip,0/0,-/-,0/0,-/-,-/-,active,access-list ACL02 line 2 extended deny ip any any
+ACL02,3,extended,permit,ip,192.168.1.1/32,-/-,10.1.0.1-10.1.0.100,-/-,-/-,active,access-list ACL02 line 3 extended permit ip host 192.168.1.1 range 10.1.0.1 10.1.0.100
+ACL02,3,extended,permit,ip,192.168.1.1/32,-/-,2001:0db8:aaaa:0000:0000:0000:0000:0000/64,-/-,-/-,active,access-list ACL02 line 3 extended permit ip host 192.168.1.1 2001:db8:aaaa::/64
+ACL02,4,extended,permit,6,2001:0db8:1111:0000:0000:0000:0000:0001/128,eq/any,2001:0db8:bbbb:0000:0000:0000:0000:0001/128,eq/53,-/-,active,access-list ACL02 line 4 extended permit tcp host 2001:db8:1111::1 host 2001:db8:bbbb::1 eq domain
+ACL02,4,extended,permit,6,2001:0db8:1111:0000:0000:0000:0000:0001/128,eq/any,2001:0db8:bbbb:0000:0000:0000:0000:0001/128,eq/123,-/-,active,access-list ACL02 line 4 extended permit tcp host 2001:db8:1111::1 host 2001:db8:bbbb::1 eq 123
+ACL02,4,extended,permit,6,2001:0db8:1111:0000:0000:0000:0000:0001/128,eq/any,2001:0db8:bbbb:0000:0000:0000:0000:0001/128,range/30000-31000,-/-,active,access-list ACL02 line 4 extended permit tcp host 2001:db8:1111::1 host 2001:db8:bbbb::1 range 30000 31000
+ACL02,4,extended,permit,6,2001:0db8:1111:0000:0000:0000:0000:0001/128,eq/any,10.1.0.1-10.1.0.100,eq/53,-/-,active,access-list ACL02 line 4 extended permit tcp host 2001:db8:1111::1 range 10.1.0.1 10.1.0.100 eq domain
+ACL02,4,extended,permit,6,2001:0db8:1111:0000:0000:0000:0000:0001/128,eq/any,10.1.0.1-10.1.0.100,eq/123,-/-,active,access-list ACL02 line 4 extended permit tcp host 2001:db8:1111::1 range 10.1.0.1 10.1.0.100 eq 123
+ACL02,4,extended,permit,6,2001:0db8:1111:0000:0000:0000:0000:0001/128,eq/any,10.1.0.1-10.1.0.100,range/30000-31000,-/-,active,access-list ACL02 line 4 extended permit tcp host 2001:db8:1111::1 range 10.1.0.1 10.1.0.100 range 30000 31000
+ACL02,4,extended,permit,6,2001:0db8:1111:0000:0000:0000:0000:0001/128,eq/any,2001:0db8:aaaa:0000:0000:0000:0000:0000/64,eq/53,-/-,active,access-list ACL02 line 4 extended permit tcp host 2001:db8:1111::1 2001:db8:aaaa::/64 eq domain
+ACL02,4,extended,permit,6,2001:0db8:1111:0000:0000:0000:0000:0001/128,eq/any,2001:0db8:aaaa:0000:0000:0000:0000:0000/64,eq/123,-/-,active,access-list ACL02 line 4 extended permit tcp host 2001:db8:1111::1 2001:db8:aaaa::/64 eq 123
+ACL02,4,extended,permit,6,2001:0db8:1111:0000:0000:0000:0000:0001/128,eq/any,2001:0db8:aaaa:0000:0000:0000:0000:0000/64,range/30000-31000,-/-,active,access-list ACL02 line 4 extended permit tcp host 2001:db8:1111::1 2001:db8:aaaa::/64 range 30000 31000
+ACL02,4,extended,permit,6,2001:0db8:1111:0000:0000:0000:0000:0001/128,eq/any,www.example.com,eq/53,-/-,active,access-list ACL02 line 4 extended permit tcp host 2001:db8:1111::1 fqdn www.example.com eq domain
+ACL02,4,extended,permit,6,2001:0db8:1111:0000:0000:0000:0000:0001/128,eq/any,www.example.com,eq/123,-/-,active,access-list ACL02 line 4 extended permit tcp host 2001:db8:1111::1 fqdn www.example.com eq 123
+ACL02,4,extended,permit,6,2001:0db8:1111:0000:0000:0000:0000:0001/128,eq/any,www.example.com,range/30000-31000,-/-,active,access-list ACL02 line 4 extended permit tcp host 2001:db8:1111::1 fqdn www.example.com range 30000 31000
+ACL02,4,extended,permit,6,192.168.1.1/32,eq/any,2001:0db8:bbbb:0000:0000:0000:0000:0001/128,eq/53,-/-,active,access-list ACL02 line 4 extended permit tcp host 192.168.1.1 host 2001:db8:bbbb::1 eq domain
+ACL02,4,extended,permit,6,192.168.1.1/32,eq/any,2001:0db8:bbbb:0000:0000:0000:0000:0001/128,eq/123,-/-,active,access-list ACL02 line 4 extended permit tcp host 192.168.1.1 host 2001:db8:bbbb::1 eq 123
+ACL02,4,extended,permit,6,192.168.1.1/32,eq/any,2001:0db8:bbbb:0000:0000:0000:0000:0001/128,range/30000-31000,-/-,active,access-list ACL02 line 4 extended permit tcp host 192.168.1.1 host 2001:db8:bbbb::1 range 30000 31000
+ACL02,4,extended,permit,6,192.168.1.1/32,eq/any,10.1.0.1-10.1.0.100,eq/53,-/-,active,access-list ACL02 line 4 extended permit tcp host 192.168.1.1 range 10.1.0.1 10.1.0.100 eq domain
+ACL02,4,extended,permit,6,192.168.1.1/32,eq/any,10.1.0.1-10.1.0.100,eq/123,-/-,active,access-list ACL02 line 4 extended permit tcp host 192.168.1.1 range 10.1.0.1 10.1.0.100 eq 123
+ACL02,4,extended,permit,6,192.168.1.1/32,eq/any,10.1.0.1-10.1.0.100,range/30000-31000,-/-,active,access-list ACL02 line 4 extended permit tcp host 192.168.1.1 range 10.1.0.1 10.1.0.100 range 30000 31000
+ACL02,4,extended,permit,6,192.168.1.1/32,eq/any,2001:0db8:aaaa:0000:0000:0000:0000:0000/64,eq/53,-/-,active,access-list ACL02 line 4 extended permit tcp host 192.168.1.1 2001:db8:aaaa::/64 eq domain
+ACL02,4,extended,permit,6,192.168.1.1/32,eq/any,2001:0db8:aaaa:0000:0000:0000:0000:0000/64,eq/123,-/-,active,access-list ACL02 line 4 extended permit tcp host 192.168.1.1 2001:db8:aaaa::/64 eq 123
+ACL02,4,extended,permit,6,192.168.1.1/32,eq/any,2001:0db8:aaaa:0000:0000:0000:0000:0000/64,range/30000-31000,-/-,active,access-list ACL02 line 4 extended permit tcp host 192.168.1.1 2001:db8:aaaa::/64 range 30000 31000
+ACL02,4,extended,permit,6,192.168.1.1/32,eq/any,www.example.com,eq/53,-/-,active,access-list ACL02 line 4 extended permit tcp host 192.168.1.1 fqdn www.example.com eq domain
+ACL02,4,extended,permit,6,192.168.1.1/32,eq/any,www.example.com,eq/123,-/-,active,access-list ACL02 line 4 extended permit tcp host 192.168.1.1 fqdn www.example.com eq 123
+ACL02,4,extended,permit,6,192.168.1.1/32,eq/any,www.example.com,range/30000-31000,-/-,active,access-list ACL02 line 4 extended permit tcp host 192.168.1.1 fqdn www.example.com range 30000 31000
+ACL02,4,extended,permit,6,192.168.2.0/24,eq/any,2001:0db8:bbbb:0000:0000:0000:0000:0001/128,eq/53,-/-,active,access-list ACL02 line 4 extended permit tcp 192.168.2.0 255.255.255.0 host 2001:db8:bbbb::1 eq domain
+ACL02,4,extended,permit,6,192.168.2.0/24,eq/any,2001:0db8:bbbb:0000:0000:0000:0000:0001/128,eq/123,-/-,active,access-list ACL02 line 4 extended permit tcp 192.168.2.0 255.255.255.0 host 2001:db8:bbbb::1 eq 123
+ACL02,4,extended,permit,6,192.168.2.0/24,eq/any,2001:0db8:bbbb:0000:0000:0000:0000:0001/128,range/30000-31000,-/-,active,access-list ACL02 line 4 extended permit tcp 192.168.2.0 255.255.255.0 host 2001:db8:bbbb::1 range 30000 31000
+ACL02,4,extended,permit,6,192.168.2.0/24,eq/any,10.1.0.1-10.1.0.100,eq/53,-/-,active,access-list ACL02 line 4 extended permit tcp 192.168.2.0 255.255.255.0 range 10.1.0.1 10.1.0.100 eq domain
+ACL02,4,extended,permit,6,192.168.2.0/24,eq/any,10.1.0.1-10.1.0.100,eq/123,-/-,active,access-list ACL02 line 4 extended permit tcp 192.168.2.0 255.255.255.0 range 10.1.0.1 10.1.0.100 eq 123
+ACL02,4,extended,permit,6,192.168.2.0/24,eq/any,10.1.0.1-10.1.0.100,range/30000-31000,-/-,active,access-list ACL02 line 4 extended permit tcp 192.168.2.0 255.255.255.0 range 10.1.0.1 10.1.0.100 range 30000 31000
+ACL02,4,extended,permit,6,192.168.2.0/24,eq/any,2001:0db8:aaaa:0000:0000:0000:0000:0000/64,eq/53,-/-,active,access-list ACL02 line 4 extended permit tcp 192.168.2.0 255.255.255.0 2001:db8:aaaa::/64 eq domain
+ACL02,4,extended,permit,6,192.168.2.0/24,eq/any,2001:0db8:aaaa:0000:0000:0000:0000:0000/64,eq/123,-/-,active,access-list ACL02 line 4 extended permit tcp 192.168.2.0 255.255.255.0 2001:db8:aaaa::/64 eq 123
+ACL02,4,extended,permit,6,192.168.2.0/24,eq/any,2001:0db8:aaaa:0000:0000:0000:0000:0000/64,range/30000-31000,-/-,active,access-list ACL02 line 4 extended permit tcp 192.168.2.0 255.255.255.0 2001:db8:aaaa::/64 range 30000 31000
+ACL02,4,extended,permit,6,192.168.2.0/24,eq/any,www.example.com,eq/53,-/-,active,access-list ACL02 line 4 extended permit tcp 192.168.2.0 255.255.255.0 fqdn www.example.com eq domain
+ACL02,4,extended,permit,6,192.168.2.0/24,eq/any,www.example.com,eq/123,-/-,active,access-list ACL02 line 4 extended permit tcp 192.168.2.0 255.255.255.0 fqdn www.example.com eq 123
+ACL02,4,extended,permit,6,192.168.2.0/24,eq/any,www.example.com,range/30000-31000,-/-,active,access-list ACL02 line 4 extended permit tcp 192.168.2.0 255.255.255.0 fqdn www.example.com range 30000 31000
+ACL03,1,extended,permit,51,0/0,-/-,10.1.0.1-10.1.0.100,-/-,-/-,active,access-list ACL03 line 1 extended permit ah any range 10.1.0.1 10.1.0.100
+ACL03,1,extended,permit,50,0/0,-/-,10.1.0.1-10.1.0.100,-/-,-/-,active,access-list ACL03 line 1 extended permit esp any range 10.1.0.1 10.1.0.100
+ACL03,1,extended,permit,1,0/0,-/-,10.1.0.1-10.1.0.100,-/-,-/-,active,access-list ACL03 line 1 extended permit icmp any range 10.1.0.1 10.1.0.100
+ACL03,1,extended,permit,58,0/0,-/-,10.1.0.1-10.1.0.100,-/-,-/-,active,access-list ACL03 line 1 extended permit icmp6 any range 10.1.0.1 10.1.0.100
+ACL03,2,extended,permit,ip,0/0,-/-,0/0,-/-,-/-,inactive,access-list ACL03 line 2 extended permit ip any any inactive
+ACL04,1,extended,deny,ip,0/0,-/-,0/0,-/-,-/-,inactive,access-list ACL04 line 1 extended deny ip any any inactive
+ACL04,2,extended,permit,1,0/0,-/-,0/0,-/-,8/any,active,access-list ACL04 line 2 extended permit icmp any any echo
+ACL04,2,extended,permit,1,0/0,-/-,0/0,-/-,0/any,active,access-list ACL04 line 2 extended permit icmp any any echo-reply
+ACL04,2,extended,permit,1,0/0,-/-,0/0,-/-,8/any,active,access-list ACL04 line 2 extended permit icmp any any echo
+ACL04,2,extended,permit,1,0/0,-/-,0/0,-/-,3/any,active,access-list ACL04 line 2 extended permit icmp any any unreachable
+ACL04,2,extended,permit,58,0/0,-/-,0/0,-/-,8/any,active,access-list ACL04 line 2 extended permit icmp6 any any 8
+ACL04,2,extended,permit,58,0/0,-/-,0/0,-/-,0/any,active,access-list ACL04 line 2 extended permit icmp6 any any 0
+ACL04,2,extended,permit,58,0/0,-/-,0/0,-/-,8/any,active,access-list ACL04 line 2 extended permit icmp6 any any 8
+ACL04,2,extended,permit,58,0/0,-/-,0/0,-/-,3/any,active,access-list ACL04 line 2 extended permit icmp6 any any time-exceeded
+ACL04,3,extended,permit,17,2001:0db8:0000:0000:0000:0000:0000:0001/128,eq/any,2001:0db8:aaaa:0000:0000:0000:0000:0000/64,eq/any,-/-,active,access-list ACL04 line 3 extended permit udp host 2001:db8::1 2001:db8:aaaa::/64
+ACL05,1,extended,deny,ip,0/0,-/-,0000:0000:0000:0000:0000:0000:0000:0000/0,-/-,-/-,active,access-list ACL05 line 1 extended deny ip any any6
+ACL05,2,extended,permit,ip,0/0,-/-,www.example.com,-/-,-/-,inactive,access-list ACL05 line 2 extended permit ip any fqdn www.example.com inactive
+ACL05,3,extended,permit,17,0/0,range/20000-30000,0/0,eq/any,-/-,active,access-list ACL05 line 3 extended permit udp any range 20000 30000 any
+ACL05,3,extended,permit,17,0/0,eq/any,0/0,eq/514,-/-,active,access-list ACL05 line 3 extended permit udp any any eq syslog
+ACL05,3,extended,permit,17,0/0,eq/any,0/0,eq/162,-/-,active,access-list ACL05 line 3 extended permit udp any any eq snmptrap
+ACL05,4,extended,permit,58,0000:0000:0000:0000:0000:0000:0000:0000/0,-/-,0000:0000:0000:0000:0000:0000:0000:0000/0,-/-,1/4,active,access-list ACL05 line 4 extended permit icmp6 any6 any6 unreachable 4
