@@ -5,19 +5,24 @@
 *
 * flatAsaAcl.js
 *
-* Copyright (c) 2019 joelob99
+* Copyright (c) 2019,2020 joelob99
 *
 * Released under the MIT License, see LICENSE.txt.
 *
 * History
 *   2019-12-24: First Release.
+*   2020-01-04: Update to v0.9.1.
+*               - Fix the wrong icmp-type number for icmp6.
+*               - Fix some udp port does not convert to the number.
+*               - Add ACL line number and ACL element columns to the flattened
+*                 ACL.
 *
 * @file This script flattens ACL in the Cisco ASA configuration. Also, it can
 *       look up the specified addresses in the flattened ACL to confirm
 *       whether the addresses are match.
-* @copyright joelob99 2019
+* @copyright joelob99 2019,2020
 * @license MIT License
-* @version v0.9.0
+* @version v0.9.1
 *
 * ============================================================================
 */
@@ -48,14 +53,26 @@ const OBJECT_GROUP_TYPE_USER     = 6;
 const OBJECT_GROUP_TYPE_PORT     = 7;
 
 /**
+* Type of port.
+*
+* @const {number}
+*/
+const PORT_TYPE_UNKNOWN = 0;
+const PORT_TYPE_TCP     = 1;
+const PORT_TYPE_UDP     = 2;
+const PORT_TYPE_TCP_UDP = 3;
+
+/**
 * Bit flag of protocol type.
 *
 * @const {number}
 */
 const PROTOCOL_TYPE_BIT_NONE        = 0x0000;
 const PROTOCOL_TYPE_BIT_IP          = 0x0001;
-const PROTOCOL_TYPE_BIT_ICMP_ICMP6  = 0x0002;
-const PROTOCOL_TYPE_BIT_TCP_UDP     = 0x0004;
+const PROTOCOL_TYPE_BIT_ICMP        = 0x0002;
+const PROTOCOL_TYPE_BIT_ICMP6       = 0x0004;
+const PROTOCOL_TYPE_BIT_TCP         = 0x0008;
+const PROTOCOL_TYPE_BIT_UDP         = 0x0010;
 const PROTOCOL_TYPE_BIT_UNSUPPORTED = 0x1000;
 const PROTOCOL_TYPE_BIT_SERVICE     = 0x2000;
 
@@ -74,6 +91,7 @@ const LOOKUP_ADDRESS_TYPE_FQDN    = 3;
 *
 * @const {number}
 */
+const ACLCOL_ACL_NAME = 1;
 const ACLCOL_ACL_TYPE = 2;
 
 /**
@@ -81,16 +99,17 @@ const ACLCOL_ACL_TYPE = 2;
 *
 * @const {number}
 */
-const NMCOL_ACL_NAME = 0;
-const NMCOL_ACL_TYPE = 1;
-const NMCOL_PERMIT   = 2;
-const NMCOL_PROTOCOL = 3;
-const NMCOL_SRC_ADDR = 4;
-const NMCOL_SRC_PORT = 5;
-const NMCOL_DST_ADDR = 6;
-const NMCOL_DST_PORT = 7;
-const NMCOL_ICMPTYCD = 8;
-const NMCOL_ACTIVE   = 9;
+const NMCOL_ACL_NAME    = 0;
+const NMCOL_ACL_LINE    = 1;
+const NMCOL_ACL_TYPE    = 2;
+const NMCOL_PERMIT      = 3;
+const NMCOL_PROTOCOL    = 4;
+const NMCOL_SRC_ADDR    = 5;
+const NMCOL_SRC_PORT    = 6;
+const NMCOL_DST_ADDR    = 7;
+const NMCOL_DST_PORT    = 8;
+const NMCOL_ICMPTYCD    = 9;
+const NMCOL_ACTIVE      = 10;
 
 /**
 * List of Cisco ASA's object type.
@@ -149,6 +168,29 @@ const t_AsaProtocol = {
     'udp'    : 17,
 };
 
+const t_AsaProtocolNumber = {
+    '51'  : 'ah',
+    '88'  : 'eigrp',
+    '50'  : 'esp',
+    '47'  : 'gre',
+    '1'   : 'icmp',
+    '58'  : 'icmp6',
+    '2'   : 'igmp',
+    '9'   : 'igrp',
+    // '-1'  : 'ip',
+    '4'   : 'ipinip',
+    // '50'  : 'ipsec',
+    '94'  : 'nos',
+    '89'  : 'ospf',
+    '108' : 'pcp',
+    '103' : 'pim',
+    // '47'  : 'pptp',
+    '132' : 'sctp',
+    '109' : 'snp',
+    '6'   : 'tcp',
+    '17'  : 'udp',
+};
+
 /**
 * List of icmp-type supported in Cisco ASA.
 *
@@ -176,67 +218,255 @@ const t_AsaIcmpType = {
     'unreachable'          : 3,
 };
 
+const t_AsaIcmpTypeNumber = {
+    '6'  : 'alternate-address',
+    '31' : 'conversion-error',
+    '8'  : 'echo',
+    '0'  : 'echo-reply',
+    '16' : 'information-reply',
+    '15' : 'information-request',
+    '18' : 'mask-reply',
+    '17' : 'mask-request',
+    '32' : 'mobile-redirect',
+    '12' : 'parameter-problem',
+    '5'  : 'redirect',
+    '9'  : 'router-advertisement',
+    '10' : 'router-solicitation',
+    '4'  : 'source-quench',
+    '11' : 'time-exceeded',
+    '14' : 'timestamp-reply',
+    '13' : 'timestamp-request',
+    '30' : 'traceroute',
+    '3'  : 'unreachable',
+};
+
+const t_AsaIcmp6Type = {
+    'echo'                   : 128,
+    'echo-reply'             : 129,
+    'membership-query'       : 130,
+    'membership-reduction'   : 132,
+    'membership-report'      : 131,
+    'neighbor-advertisement' : 136,
+    'neighbor-redirect'      : 137,
+    'neighbor-solicitation'  : 135,
+    'packet-too-big'         : 2,
+    'parameter-problem'      : 4,
+    'router-advertisement'   : 134,
+    'router-renumbering'     : 138,
+    'router-solicitation'    : 133,
+    'time-exceeded'          : 3,
+    'unreachable'            : 1,
+};
+
+const t_AsaIcmp6TypeNumber = {
+    '128' : 'echo',
+    '129' : 'echo-reply',
+    '130' : 'membership-query',
+    '132' : 'membership-reduction',
+    '131' : 'membership-report',
+    '136' : 'neighbor-advertisement',
+    '137' : 'neighbor-redirect',
+    '135' : 'neighbor-solicitation',
+    '2'   : 'packet-too-big',
+    '4'   : 'parameter-problem',
+    '134' : 'router-advertisement',
+    '138' : 'router-renumbering',
+    '133' : 'router-solicitation',
+    '3'   : 'time-exceeded',
+    '1'   : 'unreachable',
+};
+
 /**
 * List of port supported in Cisco ASA.
 *
 * @const {Object}
 */
-const t_AsaPort = {
-    'aol'             : 5190,
-    'bgp'             : 179,
-    'chargen'         : 19,
-    'cifs'            : 3020,
-    'citrix-ica'      : 1494,
-    'cmd'             : 514,
-    'ctiqbe'          : 2748,
-    'daytime'         : 13,
-    'discard'         : 9,
-    'domain'          : 53,
-    'echo'            : 7,
-    'exec'            : 512,
-    'finger'          : 79,
-    'ftp'             : 21,
-    'ftp-data'        : 20,
-    'gopher'          : 70,
-    'h323'            : 1720,
-    'hostname'        : 101,
-    'http'            : 80,
-    'https'           : 443,
-    'ident'           : 113,
-    'imap4'           : 143,
-    'irc'             : 194,
-    'kerberos'        : 750,
-    'klogin'          : 543,
-    'kshell'          : 544,
-    'ldap'            : 389,
-    'ldaps'           : 636,
-    'login'           : 513,
-    'lotusnotes'      : 1352,
-    'lpd'             : 515,
-    'netbios-ssn'     : 139,
-    'nfs'             : 2049,
-    'nntp'            : 119,
-    'pcanywhere-data' : 5631,
-    'pim-auto-rp'     : 496,
-    'pop2'            : 109,
-    'pop3'            : 110,
-    'pptp'            : 1723,
-    'rsh'             : 514,
-    'rtsp'            : 554,
-    'sip'             : 5060,
-    'smtp'            : 25,
-    'snmp'            : 161,
-    'snmptrap'        : 162,
-    'sqlnet'          : 1521,
-    'ssh'             : 22,
-    'sunrpc'          : 111,
-    'syslog'          : 514,
-    'tacacs'          : 49,
-    'talk'            : 517,
-    'telnet'          : 23,
-    'uucp'            : 540,
-    'whois'           : 43,
-    'www'             : 80,
+const t_AsaTcpPort = {
+    'aol'              : 5190,
+    'bgp'              : 179,
+    'chargen'          : 19,
+    'cifs'             : 3020,
+    'citrix-ica'       : 1494,
+    'cmd'              : 514,
+    'ctiqbe'           : 2748,
+    'daytime'          : 13,
+    'discard'          : 9,
+    'domain'           : 53,
+    'echo'             : 7,
+    'exec'             : 512,
+    'finger'           : 79,
+    'ftp'              : 21,
+    'ftp-data'         : 20,
+    'gopher'           : 70,
+    'h323'             : 1720,
+    'hostname'         : 101,
+    'http'             : 80,
+    'https'            : 443,
+    'ident'            : 113,
+    'imap4'            : 143,
+    'irc'              : 194,
+    'kerberos'         : 750,
+    'klogin'           : 543,
+    'kshell'           : 544,
+    'ldap'             : 389,
+    'ldaps'            : 636,
+    'login'            : 513,
+    'lotusnotes'       : 1352,
+    'lpd'              : 515,
+    'netbios-ssn'      : 139,
+    'nfs'              : 2049,
+    'nntp'             : 119,
+    'pcanywhere-data'  : 5631,
+    'pim-auto-rp'      : 496,
+    'pop2'             : 109,
+    'pop3'             : 110,
+    'pptp'             : 1723,
+    'rsh'              : 514,
+    'rtsp'             : 554,
+    'sip'              : 5060,
+    'smtp'             : 25,
+    'sqlnet'           : 1521,
+    'ssh'              : 22,
+    'sunrpc'           : 111,
+    'tacacs'           : 49,
+    'talk'             : 517,
+    'telnet'           : 23,
+    'uucp'             : 540,
+    'whois'            : 43,
+    'www'              : 80,
+};
+
+const t_AsaTcpPortNumber = {
+    '5190' : 'aol',
+    '179'  : 'bgp',
+    '19'   : 'chargen',
+    '3020' : 'cifs',
+    '1494' : 'citrix-ica',
+    // '514'  : 'cmd',
+    '2748' : 'ctiqbe',
+    '13'   : 'daytime',
+    '9'    : 'discard',
+    '53'   : 'domain',
+    '7'    : 'echo',
+    '512'  : 'exec',
+    '79'   : 'finger',
+    '21'   : 'ftp',
+    '20'   : 'ftp-data',
+    '70'   : 'gopher',
+    '1720' : 'h323',
+    '101'  : 'hostname',
+    // '80'   : 'http',
+    '443'  : 'https',
+    '113'  : 'ident',
+    '143'  : 'imap4',
+    '194'  : 'irc',
+    '750'  : 'kerberos',
+    '543'  : 'klogin',
+    '544'  : 'kshell',
+    '389'  : 'ldap',
+    '636'  : 'ldaps',
+    '513'  : 'login',
+    '1352' : 'lotusnotes',
+    '515'  : 'lpd',
+    '139'  : 'netbios-ssn',
+    '2049' : 'nfs',
+    '119'  : 'nntp',
+    '5631' : 'pcanywhere-data',
+    '496'  : 'pim-auto-rp',
+    '109'  : 'pop2',
+    '110'  : 'pop3',
+    '1723' : 'pptp',
+    '514'  : 'rsh',
+    '554'  : 'rtsp',
+    '5060' : 'sip',
+    '25'   : 'smtp',
+    '1521' : 'sqlnet',
+    '22'   : 'ssh',
+    '111'  : 'sunrpc',
+    '49'   : 'tacacs',
+    '517'  : 'talk',
+    '23'   : 'telnet',
+    '540'  : 'uucp',
+    '43'   : 'whois',
+    '80'   : 'www',
+};
+
+const t_AsaUdpPort = {
+    'biff'              : 512,
+    'bootpc'            : 68,
+    'bootps'            : 67,
+    'cifs'              : 3020,
+    'discard'           : 9,
+    'dnsix'             : 195,
+    'domain'            : 53,
+    'echo'              : 7,
+    'http'              : 80,
+    'isakmp'            : 500,
+    'kerberos'          : 750,
+    'mobile-ip'         : 434,
+    'nameserver'        : 42,
+    'netbios-dgm'       : 138,
+    'netbios-ns'        : 137,
+    'nfs'               : 2049,
+    'ntp'               : 123,
+    'pcanywhere-status' : 5632,
+    'pim-auto-rp'       : 496,
+    'radius'            : 1645,
+    'radius-acct'       : 1646,
+    'rip'               : 520,
+    'secureid-udp'      : 5510,
+    'sip'               : 5060,
+    'snmp'              : 161,
+    'snmptrap'          : 162,
+    'sunrpc'            : 111,
+    'syslog'            : 514,
+    'tacacs'            : 49,
+    'talk'              : 517,
+    'tftp'              : 69,
+    'time'              : 37,
+    'vxlan'             : 4789,
+    'who'               : 513,
+    'www'               : 80,
+    'xdmcp'             : 177,
+};
+
+const t_AsaUdpPortNumber = {
+    '512'  : 'biff',
+    '68'   : 'bootpc',
+    '67'   : 'bootps',
+    '3020' : 'cifs',
+    '9'    : 'discard',
+    '195'  : 'dnsix',
+    '53'   : 'domain',
+    '7'    : 'echo',
+    // '80'   : 'http',
+    '500'  : 'isakmp',
+    '750'  : 'kerberos',
+    '434'  : 'mobile-ip',
+    '42'   : 'nameserver',
+    '138'  : 'netbios-dgm',
+    '137'  : 'netbios-ns',
+    '2049' : 'nfs',
+    '123'  : 'ntp',
+    '5632' : 'pcanywhere-status',
+    '496'  : 'pim-auto-rp',
+    '1645' : 'radius',
+    '1646' : 'radius-acct',
+    '520'  : 'rip',
+    '5510' : 'secureid-udp',
+    '5060' : 'sip',
+    '161'  : 'snmp',
+    '162'  : 'snmptrap',
+    '111'  : 'sunrpc',
+    '514'  : 'syslog',
+    '49'   : 'tacacs',
+    '517'  : 'talk',
+    '69'   : 'tftp',
+    '37'   : 'time',
+    '4789' : 'vxlan',
+    '513'  : 'who',
+    '80'   : 'www',
+    '177'  : 'xdmcp',
 };
 
 /**
@@ -246,14 +476,14 @@ const t_AsaPort = {
 */
 const t_SupportedProtocolTypeBit = {
     'ip'    : PROTOCOL_TYPE_BIT_IP,
-    'icmp'  : PROTOCOL_TYPE_BIT_ICMP_ICMP6,
-    'icmp6' : PROTOCOL_TYPE_BIT_ICMP_ICMP6,
-    '1'     : PROTOCOL_TYPE_BIT_ICMP_ICMP6,
-    '58'    : PROTOCOL_TYPE_BIT_ICMP_ICMP6,
-    'tcp'   : PROTOCOL_TYPE_BIT_TCP_UDP,
-    'udp'   : PROTOCOL_TYPE_BIT_TCP_UDP,
-    '6'     : PROTOCOL_TYPE_BIT_TCP_UDP,
-    '17'    : PROTOCOL_TYPE_BIT_TCP_UDP,
+    'icmp'  : PROTOCOL_TYPE_BIT_ICMP,
+    'icmp6' : PROTOCOL_TYPE_BIT_ICMP6,
+    '1'     : PROTOCOL_TYPE_BIT_ICMP,
+    '58'    : PROTOCOL_TYPE_BIT_ICMP6,
+    'tcp'   : PROTOCOL_TYPE_BIT_TCP,
+    'udp'   : PROTOCOL_TYPE_BIT_UDP,
+    '6'     : PROTOCOL_TYPE_BIT_TCP,
+    '17'    : PROTOCOL_TYPE_BIT_UDP,
 };
 
 /*
@@ -312,8 +542,7 @@ function debugAssert(assertion, any) {
 */
 
 /**
-* This function converts protocol name string to protocol number and returns
-* its protocol number.
+* This function returns the protocol number of the specified protocol name.
 * Returns undefined if the protocol name is not recognized.
 *
 * @param {string} strProtocolName
@@ -325,8 +554,20 @@ function getProtocolNumberFromProtocolName(strProtocolName) {
 }
 
 /**
-* This function converts icmp-type name string to icmp-type number and returns
-* its icmp-type number.
+* This function returns the protocol name of the specified protocol number
+* string.
+* Returns undefined if the protocol number string is not recognized.
+*
+* @param {string} strProtocolNumber
+* @return {(string|undefined)} Protocol name
+*
+*/
+function getProtocolNameFromProtocolNumberString(strProtocolNumber) {
+    return t_AsaProtocolNumber[strProtocolNumber];
+}
+
+/**
+* This function returns the icmp-type number of the specified icmp-type name.
 * Returns undefined if the icmp-type name is not recognized.
 *
 * @param {string} strIcmpTypeName
@@ -338,16 +579,108 @@ function getIcmpTypeNumberFromIcmpTypeName(strIcmpTypeName) {
 }
 
 /**
-* This function converts port name string to the port number and returns its
-* port number.
-* Returns undefined if the port name is not recognized.
+* This function returns the icmp-type name of the specified icmp-type number
+* string.
+* Returns undefined if the icmp-type number string is not recognized.
 *
-* @param {string} strPortName
-* @return {(number|undefined)} Port number.
+* @param {string} strIcmpTypeNumber
+* @return {(string|undefined)} icmp-type name.
 *
 */
-function getPortNumberFromPortName(strPortName) {
-    return t_AsaPort[strPortName];
+function getIcmpTypeNameFromIcmpTypeNumberString(strIcmpTypeNumber) {
+    return t_AsaIcmpTypeNumber[strIcmpTypeNumber];
+}
+
+/**
+* This function returns the icmp6-type number of the specified icmp6-type name.
+* Returns undefined if the icmp6-type name is not recognized.
+*
+* @param {string} strIcmp6TypeName
+* @return {(number|undefined)} icmp6-type number.
+*
+*/
+function getIcmp6TypeNumberFromIcmp6TypeName(strIcmp6TypeName) {
+    return t_AsaIcmp6Type[strIcmp6TypeName];
+}
+
+/**
+* This function returns the icmp6-type name of the specified icmp6-type number
+* string.
+* Returns undefined if the icmp6-type number string is not recognized.
+*
+* @param {string} strIcmp6TypeNumber
+* @return {(string|undefined)} icmp6-type name.
+*
+*/
+function getIcmp6TypeNameFromIcmp6TypeNumberString(strIcmp6TypeNumber) {
+    return t_AsaIcmp6TypeNumber[strIcmp6TypeNumber];
+}
+
+/**
+* This function returns the tcp port number of the specified tcp port name.
+* Returns undefined if the tcp port name is not recognized.
+*
+* @param {string} strTcpPortName
+* @return {(number|undefined)} Tcp port number.
+*
+*/
+function getTcpPortNumberFromTcpPortName(strTcpPortName) {
+    return t_AsaTcpPort[strTcpPortName];
+}
+
+/**
+* This function returns the tcp port name of the specified port tcp number
+* string.
+* Returns undefined if the tcp port number string is not recognized.
+*
+* @param {string} strTcpPortNumber
+* @return {(string|undefined)} Tcp port name.
+*
+*/
+function getTcpPortNameFromTcpPortNumberString(strTcpPortNumber) {
+    return t_AsaTcpPortNumber[strTcpPortNumber];
+}
+
+/**
+* This function returns the udp port number of the specified udp port name.
+* Returns undefined if the udp port name is not recognized.
+*
+* @param {string} strUdpPortName
+* @return {(number|undefined)} Udp port number.
+*
+*/
+function getUdpPortNumberFromUdpPortName(strUdpPortName) {
+    return t_AsaUdpPort[strUdpPortName];
+}
+
+/**
+* This function returns the udp port name of the specified udp port number
+* string.
+* Returns undefined if the udp port number string is not recognized.
+*
+* @param {string} strUdpPortNumber
+* @return {(string|undefined)} Udp port name.
+*
+*/
+function getUdpPortNameFromUdpPortNumberString(strUdpPortNumber) {
+    return t_AsaUdpPortNumber[strUdpPortNumber];
+}
+
+/**
+* This function returns the tcp-udp port number of the specified tcp-udp port
+* name.
+* Returns undefined if the tcp-udp port name is not recognized.
+*
+* @param {string} strTcpUdpPortName
+* @return {(number|undefined)} Tcp-udp port number.
+*
+*/
+function getTcpUdpPortNumberFromTcpUdpPortName(strTcpUdpPortName) {
+    let intPortNumber = t_AsaTcpPort[strTcpUdpPortName];
+    if (intPortNumber != undefined) {
+        intPortNumber = t_AsaUdpPort[strTcpUdpPortName];
+    }
+    return intPortNumber;
 }
 
 /**
@@ -361,7 +694,7 @@ function getPortNumberFromPortName(strPortName) {
 *
 */
 function isOperator(str) {
-    return (str === 'lt' || str === 'gt' || str ==='eq' || str === 'neq' || str === 'range');
+    return (str === 'lt' || str === 'gt' || str === 'eq' || str === 'neq' || str === 'range');
 }
 
 /**
@@ -379,31 +712,59 @@ function isIpProtocol(str) {
 }
 
 /**
-* This function returns true if the parameter is icmp or icmp6 protocol string.
+* This function returns true if the parameter is icmp protocol string.
 * Otherwise, it is false.
 *
 * @param {string} str
 * @return {boolean}
-*   true if the parameter is icmp or icmp6 protocol string.
+*   true if the parameter is icmp protocol string.
 *   Otherwise, it is false.
 *
 */
-function isIcmpOrIcmp6Protocol(str) {
-    return (str === 'icmp' || str === 'icmp6' || str ==='1' || str === '58');
+function isIcmpProtocol(str) {
+    return (str === 'icmp' || str === '1');
 }
 
 /**
-* This function returns true if the parameter is tcp or udp protocol string.
+* This function returns true if the parameter is icmp6 protocol string.
 * Otherwise, it is false.
 *
 * @param {string} str
 * @return {boolean}
-*   true if the parameter is tcp or udp protocol string.
+*   true if the parameter is icmp6 protocol string.
 *   Otherwise, it is false.
 *
 */
-function isTcpOrUdpProtocol(str) {
-    return (str === 'tcp' || str === 'udp' || str ==='6' || str === '17');
+function isIcmp6Protocol(str) {
+    return (str === 'icmp6' || str === '58');
+}
+
+/**
+* This function returns true if the parameter is tcp protocol string.
+* Otherwise, it is false.
+*
+* @param {string} str
+* @return {boolean}
+*   true if the parameter is tcp protocol string.
+*   Otherwise, it is false.
+*
+*/
+function isTcpProtocol(str) {
+    return (str === 'tcp' || str === '6');
+}
+
+/**
+* This function returns true if the parameter is udp protocol string.
+* Otherwise, it is false.
+*
+* @param {string} str
+* @return {boolean}
+*   true if the parameter is udp protocol string.
+*   Otherwise, it is false.
+*
+*/
+function isUdpProtocol(str) {
+    return (str === 'udp' || str === '17');
 }
 
 /**
@@ -418,10 +779,14 @@ function getProtocolTypeBit(strProtocol) {
     let intProtocolTypeBit = PROTOCOL_TYPE_BIT_NONE;
     if (isIpProtocol(strProtocol)) {
         intProtocolTypeBit |= PROTOCOL_TYPE_BIT_IP;
-    } else if (isIcmpOrIcmp6Protocol(strProtocol)) {
-        intProtocolTypeBit |= PROTOCOL_TYPE_BIT_ICMP_ICMP6;
-    } else if (isTcpOrUdpProtocol(strProtocol)) {
-        intProtocolTypeBit |= PROTOCOL_TYPE_BIT_TCP_UDP;
+    } else if (isIcmpProtocol(strProtocol)) {
+        intProtocolTypeBit |= PROTOCOL_TYPE_BIT_ICMP;
+    } else if (isIcmp6Protocol(strProtocol)) {
+        intProtocolTypeBit |= PROTOCOL_TYPE_BIT_ICMP6;
+    } else if (isTcpProtocol(strProtocol)) {
+        intProtocolTypeBit |= PROTOCOL_TYPE_BIT_TCP;
+    } else if (isUdpProtocol(strProtocol)) {
+        intProtocolTypeBit |= PROTOCOL_TYPE_BIT_UDP;
     } else if (Number.isInteger(+strProtocol)) {
         intProtocolTypeBit |= PROTOCOL_TYPE_BIT_UNSUPPORTED;
     } else if (getProtocolNumberFromProtocolName(strProtocol) != undefined) {
@@ -457,7 +822,7 @@ function getPrefixLengthFromIPv4NetMask(strIPv4NetMask) {
         for (let j=7; j>=0; --j) {
             if (bytMask >= Math.pow(2, j)) {
                 ++intPrefixLength;
-                bytMask = bytMask - Math.pow(2, j);
+                bytMask -= Math.pow(2, j);
             } else if (bytMask == 0) {
                 break;
             }
@@ -573,9 +938,11 @@ function getIPv6NetMaskFromPrefixLength(intIPv6PrefixLength) {
     for (let i=0; i<=intIndexToCalc-1; ++i) {
         arrayBytMaskOctet[i] = 255;
     }
-    arrayBytMaskOctet[intIndexToCalc] = getOctetNetMaskFromOctetPrefixLength(intIPv6PrefixLength - Math.trunc(intIPv6PrefixLength / 8) * 8);
-    for (let i=intIndexToCalc+1; i<=15; ++i) {
-        arrayBytMaskOctet[i] = 0;
+    if (intIndexToCalc < 16) {
+        arrayBytMaskOctet[intIndexToCalc] = getOctetNetMaskFromOctetPrefixLength(intIPv6PrefixLength - Math.trunc(intIPv6PrefixLength / 8) * 8);
+        for (let i=intIndexToCalc+1; i<16; ++i) {
+            arrayBytMaskOctet[i] = 0;
+        }
     }
 
     let strNetMask = '';
@@ -884,7 +1251,6 @@ function getIPv6HextetStrArray(strIPv6Addr) {
     return arrayStrHextet;
 }
 
-
 /**
 * This function adapts the IPv6 address without prefix length to the full
 * represented and returns the adapted address. It is '' if the argument is not
@@ -948,6 +1314,96 @@ function getIPv6FullRepresentedAddrWithPrefixLength(strIPv6AddrWithPrefixLength)
         return '';
     }
     return (strNormalizedIPv6Addr + '/' + arrayStrIPv6[1]);
+}
+
+/**
+* This function adapts the IPv6 address without prefix length to the compressed
+* represented and returns the adapted address. It is '' if the argument is not
+* IPv6 address.
+*
+* @param {string} strIPv6Addr
+* @return {string}
+*   The compressed represented IPv6 address without prefix length.
+*
+* @example
+*   strIPv6Addr                                    Return
+*   ---------------------------------------------------------------------------------------
+*   '0000:0000:0000:0000:0000:0000:0000:0000'   -> '::'
+*   '0000:0000:0000:0000:0000:0000:0000:0001'   -> '::1'
+*   '2001:0db8:0000:0000:0000:0000:0000:0001'   -> '2001:db8::1'
+*   '2001:0db8:1234:5678:90aB:cDeF:feDC:bA09'   -> '2001:db8:1234:5678:90ab:cdef:fedc:ba09'
+*   '0000:0000:0000:0000:0000:0000:192.168.0.1' -> '::192.168.0.1'
+*   '0000:0000:0000:0000:0000:ffff:192.168.0.1' -> '::ffff:192.168.0.1'
+*   '2001:db8::1'                               -> '2001:0db8::1'
+*   '::192.168.0.1'                             -> '::192.168.0.1'
+*   '::ffff:192.168.0.1'                        -> '::ffff:192.168.0.1'
+*   'eeee:0000:0000:0000:0000:ffff:192.168.0.1' -> ''
+*   '::eeee:192.168.0.1'                        -> ''
+*   '2001:db8::fffff:1'                         -> ''
+*   'UNKNOWN'                                   -> ''
+*/
+function getIPv6CompressedAddr(strIPv6Addr) {
+    let strCompressedIPv6Addr = '';
+    const array = getIPv6HextetStrArray(strIPv6Addr);
+    if (array[0]) {
+        for (let i=0; i<array.length; ++i) {
+            array[i] = array[i].replace(/^0{1,3}/, '');
+        }
+
+        const arrayIPv4 = strIPv6Addr.match(/:(\d+\.\d+\.\d+\.\d+)$/);
+        if (arrayIPv4 && arrayIPv4[1]) {
+            // Recover IPv4-compatible address and IPv4-mapped address.
+            strCompressedIPv6Addr = array.slice(0, 6).join(':') + ':' + arrayIPv4[1];
+        } else {
+            strCompressedIPv6Addr = array.join(':');
+        }
+
+        // Compress.
+        strCompressedIPv6Addr = strCompressedIPv6Addr.replace('0:0:0:0:0:0:0:0', '::');
+        for (let i=0; i<=10; i+=2) {
+            const strTemp = strCompressedIPv6Addr.replace('0:0:0:0:0:0:0'.substring(i), ':');
+            if (strCompressedIPv6Addr !== strTemp) {
+                strCompressedIPv6Addr = strTemp;
+                break;
+            }
+        }
+        strCompressedIPv6Addr = strCompressedIPv6Addr.replace(':::', '::');
+    }
+    return strCompressedIPv6Addr;
+}
+
+/**
+* This function adapts the IPv6 address with prefix length to the compressed
+* represented and returns the adapted address. It is '' if the argument is not
+* IPv6 address.
+*
+* @param {string} strIPv6AddrWithPrefixLength
+* @return {string} The compressed represented IPv6 address with prefix length.
+*
+* @example
+*   strIPv6Addr                                        Return
+*   -----------------------------------------------------------------------------------------------
+*   '0000:0000:0000:0000:0000:0000:0000:0000/0'     -> '::/0'
+*   '0000:0000:0000:0000:0000:0000:0000:0001/128'   -> '::1/128'
+*   '2001:0db8:0000:0000:0000:0000:0000:0001/128'   -> '2001:db8::1/128'
+*   '2001:0db8:1234:5678:90aB:cDeF:feDC:bA09/128'   -> '2001:db8:1234:5678:90ab:cdef:fedc:ba09/128'
+*   '0000:0000:0000:0000:0000:0000:192.168.0.1/128' -> '::192.168.0.1/128'
+*   '0000:0000:0000:0000:0000:ffff:192.168.0.1/128' -> '::ffff:192.168.0.1/128'
+*   '2001:db8::1/128'                               -> '2001:0db8::1/128'
+*   '::192.168.0.1/128'                             -> '::192.168.0.1/128'
+*   '::ffff:192.168.0.1/128'                        -> '::ffff:192.168.0.1/128'
+*   'eeee:0000:0000:0000:0000:ffff:192.168.0.1/128' -> ''
+*   '::eeee:192.168.0.1/128'                        -> ''
+*   '2001:db8::fffff:1/128'                         -> ''
+*   'UNKNOWN'                                       -> ''
+*/
+function getIPv6CompressedAddrWithPrefixLength(strIPv6AddrWithPrefixLength) {
+    const arrayStrIPv6 = strIPv6AddrWithPrefixLength.split('/');
+    const strCompressedIPv6Addr = getIPv6CompressedAddr(arrayStrIPv6[0]);
+    if (strCompressedIPv6Addr === '') {
+        return '';
+    }
+    return (strCompressedIPv6Addr + '/' + arrayStrIPv6[1]);
 }
 
 /*
@@ -1274,27 +1730,29 @@ function extractProtocolFromAce(arrayToken, index) {
 *
 * @param {Array} arrayToken
 * @param {number} index
+* @param {boolean} boolIcmp6
 * @return {Object}
 *   An associative array of the icmp-type number string, and next index of the
 *   ACE token.
 *
 * @example
-*   arrayToken   index    Return['value'] Return['next_index']
-*   ----------------------------------------------------------
-*   ['0']        0     -> '0'             1
-*   ['echo']     0     -> '8'             1
-*   ['log']      0     -> ''              0
-*   ['UNKNOWN']  0     -> ''              0
-*   []           0     -> ''              0
+*   arrayToken   index boolIcmp6    Return['value'] Return['next_index']
+*   --------------------------------------------------------------------
+*   ['0']        0     false     -> '0'             1
+*   ['echo']     0     false     -> '8'             1
+*   ['echo']     0     true      -> '128'           1
+*   ['log']      0     false     -> ''              0
+*   ['UNKNOWN']  0     false     -> ''              0
+*   []           0     false     -> ''              0
 */
-function extractIcmpTypeFromAce(arrayToken, index) {
+function extractIcmpTypeFromAce(arrayToken, index, boolIcmp6) {
     const objReturn = {};
     let strIcmpTypeNumber = '';
     if (arrayToken[index]) {
         if (Number.isInteger(+arrayToken[index])) {
             strIcmpTypeNumber = arrayToken[index++];
         } else {
-            const intIcmpTypeNumber = getIcmpTypeNumberFromIcmpTypeName(arrayToken[index]);
+            const intIcmpTypeNumber = boolIcmp6 ? getIcmp6TypeNumberFromIcmp6TypeName(arrayToken[index]) : getIcmpTypeNumberFromIcmpTypeName(arrayToken[index]);
             if (intIcmpTypeNumber != undefined) {
                 strIcmpTypeNumber = intIcmpTypeNumber.toString();
                 ++index;
@@ -1317,30 +1775,33 @@ function extractIcmpTypeFromAce(arrayToken, index) {
 *
 * @param {Array} arrayToken
 * @param {number} index
+* @param {boolean} boolIcmp6
 * @return {Object}
 *   An associative array of the normalized icmp-type and icmp-code string,
 *   and next index of the ACE token.
 *
 * @example
-*   arrayToken     index    Return['value'] Return['next_index']
-*   ------------------------------------------------------------
-*   ['0','255']    0     -> '0/255'         2
-*   ['echo','255'] 0     -> '8/255'         2
-*   ['0']          0     -> '0/any'         1
-*   ['echo']       0     -> '8/any'         1
-*   ['0','log']    0     -> '0/any'         1
-*   ['echo','log'] 0     -> '8/any'         1
-*   ['log']        0     -> 'any/any'       0
-*   ['UNKNOWN']    0     -> 'any/any'       0
-*   []             0     -> 'any/any'       0
+*   arrayToken     index boolIcmp6    Return['value'] Return['next_index']
+*   ----------------------------------------------------------------------
+*   ['0','255']    0     false     -> '0/255'         2
+*   ['echo','255'] 0     false     -> '8/255'         2
+*   ['echo','255'] 0     true      -> '128/255'       2
+*   ['0']          0     false     -> '0/any'         1
+*   ['echo']       0     false     -> '8/any'         1
+*   ['echo']       0     true      -> '128/any'       1
+*   ['0','log']    0     false     -> '0/any'         1
+*   ['echo','log'] 0     false     -> '8/any'         1
+*   ['log']        0     false     -> 'any/any'       0
+*   ['UNKNOWN']    0     false     -> 'any/any'       0
+*   []             0     false     -> 'any/any'       0
 */
-function extractIcmpTypeAndCodeFromAce(arrayToken, index) {
+function extractIcmpTypeAndCodeFromAce(arrayToken, index, boolIcmp6) {
     const objReturn = {};
     let strIcmpTypeAndCode = 'any/any';
 
     // icmp-type.
     if (arrayToken[index]) {
-        const objIcmpType = extractIcmpTypeFromAce(arrayToken, index);
+        const objIcmpType = extractIcmpTypeFromAce(arrayToken, index, boolIcmp6);
         if (objIcmpType['next_index'] > index) {
             strIcmpTypeAndCode = objIcmpType['value'];
             index = objIcmpType['next_index'];
@@ -1365,26 +1826,35 @@ function extractIcmpTypeAndCodeFromAce(arrayToken, index) {
 *
 * @param {Array} arrayToken
 * @param {number} index
+* @param {number} intPortType
 * @return {Object}
 *   An associative array of the normalized port number string and the next
 *   index of the ACE token.
 *
 * @example
-*   arrayToken   index    Return['value'] Return['next_index']
-*   ----------------------------------------------------------
-*   ['0']        0     -> '0'             1
-*   ['http']     0     -> '80'            1
-*   ['UNKNOWN']  0     -> 'UNKNOWN'       1
-*   []           0     -> ''              0
+*   arrayToken   index intPortType          Return['value'] Return['next_index']
+*   ----------------------------------------------------------------------------
+*   ['0']        0     PORT_TYPE_TCP_UDP -> '0'             1
+*   ['www']      0     PORT_TYPE_TCP_UDP -> '80'            1
+*   ['www']      0     PORT_TYPE_TCP     -> '80'            1
+*   ['www']      0     PORT_TYPE_UDP     -> '80'            1
+*   ['rsh']      0     PORT_TYPE_TCP_UDP -> 'rsh'           1
+*   ['rsh']      0     PORT_TYPE_TCP     -> '514'           1
+*   ['rsh']      0     PORT_TYPE_UDP     -> 'rsh'           1
+*   ['syslog']   0     PORT_TYPE_TCP_UDP -> 'syslog         1
+*   ['syslog']   0     PORT_TYPE_TCP     -> 'syslog'        1
+*   ['syslog']   0     PORT_TYPE_UDP     -> '514'           1
+*   ['UNKNOWN']  0     PORT_TYPE_TCP_UDP -> 'UNKNOWN'       1
+*   []           0     PORT_TYPE_TCP_UDP -> ''              0
 */
-function extractPortFromAce(arrayToken, index) {
+function extractPortFromAce(arrayToken, index, intPortType) {
     const objReturn = {};
     let strPortNumber = '';
     if (arrayToken[index]) {
         if (Number.isInteger(+arrayToken[index])) {
             strPortNumber = arrayToken[index];
         } else {
-            const intPortNumber = getPortNumberFromPortName(arrayToken[index]);
+            const intPortNumber = intPortType == PORT_TYPE_TCP_UDP ? getTcpUdpPortNumberFromTcpUdpPortName(arrayToken[index]) : intPortType == PORT_TYPE_TCP ? getTcpPortNumberFromTcpPortName(arrayToken[index]) : getUdpPortNumberFromUdpPortName(arrayToken[index]);
             strPortNumber = (intPortNumber == undefined) ? arrayToken[index] : intPortNumber.toString();
         }
         // Because the port field is a required, increment the index even if it is an unknown port name.
@@ -1406,35 +1876,45 @@ function extractPortFromAce(arrayToken, index) {
 *
 * @param {Array} arrayToken
 * @param {number} index
+* @param {number} intPortType
 * @return {Object}
 *   An associative array of the normalized port condition string and the next
 *   index of the ACE token.
 *
 * @example
-*   arrayToken                  index    Return['value']             Return['next_index']
-*   -------------------------------------------------------------------------------------
-*   ['lt','21']                 0     -> 'lt/21'                     2
-*   ['eq','http']               0     -> 'eq/80'                     2
-*   ['range','10000','20000']   0     -> 'range/10000-20000'         3
-*   ['range','20','ftp']        0     -> 'range/20-21'               3
-*   ['range','https','444']     0     -> 'range/443-444'             3
-*   ['gt']                      0     -> 'gt/undefined'              1
-*   ['neq','UNKNOWN']           0     -> 'neq/UNKNOWN'               2
-*   ['range']                   0     -> 'range/undefined-undefined' 1
-*   ['range','10000']           0     -> 'range/10000-undefined'     2
-*   ['range','10000','UNKNOWN'] 0     -> 'range/10000-UNKNOWN'       3
-*   ['range','UNKNOWN']         0     -> 'range/UNKNOWN-undefined'   2
-*   ['log']                     0     -> ''                          0
-*   ['UNKNOWN']                 0     -> ''                          0
-*   []                          0     -> ''                          0
+*   arrayToken                  index intPortType          Return['value']             Return['next_index']
+*   -------------------------------------------------------------------------------------------------------
+*   ['lt','21']                 0     PORT_TYPE_TCP_UDP -> 'lt/21'                     2
+*   ['eq','http']               0     PORT_TYPE_TCP_UDP -> 'eq/80'                     2
+*   ['eq','www']                0     PORT_TYPE_TCP_UDP -> '80'                        2
+*   ['eq','www']                0     PORT_TYPE_TCP     -> '80'                        2
+*   ['eq','www']                0     PORT_TYPE_UDP     -> '80'                        2
+*   ['eq','rsh']                0     PORT_TYPE_TCP_UDP -> 'eq/rsh'                    2
+*   ['eq','rsh']                0     PORT_TYPE_TCP     -> 'eq/514'                    2
+*   ['eq','rsh']                0     PORT_TYPE_UDP     -> 'eq/rsh'                    2
+*   ['eq','syslog']             0     PORT_TYPE_TCP_UDP -> 'eq/syslog'                 2
+*   ['eq','syslog']             0     PORT_TYPE_TCP     -> 'eq/syslog'                 2
+*   ['eq','syslog']             0     PORT_TYPE_UDP     -> 'eq/514'                    2
+*   ['range','10000','20000']   0     PORT_TYPE_TCP_UDP -> 'range/10000-20000'         3
+*   ['range','20','ftp']        0     PORT_TYPE_TCP_UDP -> 'range/20-21'               3
+*   ['range','https','444']     0     PORT_TYPE_TCP_UDP -> 'range/443-444'             3
+*   ['gt']                      0     PORT_TYPE_TCP_UDP -> 'gt/undefined'              1
+*   ['neq','UNKNOWN']           0     PORT_TYPE_TCP_UDP -> 'neq/UNKNOWN'               2
+*   ['range']                   0     PORT_TYPE_TCP_UDP -> 'range/undefined-undefined' 1
+*   ['range','10000']           0     PORT_TYPE_TCP_UDP -> 'range/10000-undefined'     2
+*   ['range','10000','UNKNOWN'] 0     PORT_TYPE_TCP_UDP -> 'range/10000-UNKNOWN'       3
+*   ['range','UNKNOWN']         0     PORT_TYPE_TCP_UDP -> 'range/UNKNOWN-undefined'   2
+*   ['log']                     0     PORT_TYPE_TCP_UDP -> ''                          0
+*   ['UNKNOWN']                 0     PORT_TYPE_TCP_UDP -> ''                          0
+*   []                          0     PORT_TYPE_TCP_UDP -> ''                          0
 */
-function extractPortConditionFromAce(arrayToken, index) {
+function extractPortConditionFromAce(arrayToken, index, intPortType) {
     const objReturn = {};
     let strPortCondition = '';
     if (arrayToken[index]) {
         const strOperator = arrayToken[index];
         if (strOperator === 'lt' || strOperator === 'gt' || strOperator === 'eq' || strOperator === 'neq') {
-            const objPort = extractPortFromAce(arrayToken, ++index);
+            const objPort = extractPortFromAce(arrayToken, ++index, intPortType);
             if (objPort['next_index'] == index) { // Not exists the port name and port number.
                 strPortCondition = strOperator + '/undefined';
             } else {
@@ -1442,12 +1922,12 @@ function extractPortConditionFromAce(arrayToken, index) {
                 index = objPort['next_index'];
             }
         } else if (strOperator === 'range') {
-            const objPortStart = extractPortFromAce(arrayToken, ++index);
+            const objPortStart = extractPortFromAce(arrayToken, ++index, intPortType);
             if (objPortStart['next_index'] == index) { // Not exists the port start.
                 strPortCondition = strOperator + '/undefined-undefined';
             } else {
                 index = objPortStart['next_index'];
-                const objPortEnd = extractPortFromAce(arrayToken, index);
+                const objPortEnd = extractPortFromAce(arrayToken, index, intPortType);
                 if (objPortEnd['next_index'] == index) { // Not exists the port end.
                     strPortCondition = strOperator + '/' + objPortStart['value'] + '-undefined';
                 } else {
@@ -1617,27 +2097,29 @@ function extractIPAddrFromNetworkObjectGroup(arrayToken, index) {
 function extractObjectNameOrObjectGroupNameOrAddressFromAce(arrayToken, index) {
     const objReturn = {};
     let strValue = '';
-
-    switch (arrayToken[index]) {
-    case 'object':
-    case 'object-group':
-        strValue = arrayToken[++index];
-        ++index;
-        break;
-    case 'interface':
-    case 'object-group-security':
-    case 'object-group-user':
-    case 'user':
-    case 'user-group':
-        // TODO: Support the above types.
-        strValue = 'undefined';
-        index += 2;
-        break;
-    default:
-        const objIPAddr = extractIPAddrFromAce(arrayToken, index);
-        strValue = objIPAddr['value'];
-        index = objIPAddr['next_index'];
-        break;
+    if (arrayToken[index]) {
+        switch (arrayToken[index]) {
+        case 'object':
+        case 'object-group':
+            strValue = arrayToken[++index];
+            ++index;
+            break;
+        case 'interface':
+        case 'object-group-security':
+        case 'object-group-user':
+        case 'security-group':
+        case 'user':
+        case 'user-group':
+            // TODO: Support the above types.
+            strValue = 'undefined';
+            index += 2;
+            break;
+        default:
+            const objIPAddr = extractIPAddrFromAce(arrayToken, index);
+            strValue = objIPAddr['value'];
+            index = objIPAddr['next_index'];
+            break;
+        }
     }
     objReturn['value'] = strValue;
     objReturn['next_index'] = index;
@@ -1652,33 +2134,42 @@ function extractObjectNameOrObjectGroupNameOrAddressFromAce(arrayToken, index) {
 *
 * @param {Array} arrayToken
 * @param {number} index
+* @param {number} intPortType
 * @return {Object}
 *   An associative array of the normalized string of port condition and the
 *   next index of the ACE token.
 *
 * @example
-*   arrayToken                                index    Return['value']       Return['next_index']
-*   ---------------------------------------------------------------------------------------------
-*   ['eq','https']                            0     -> 'eq/443'              2
-*   ['eq','80']                               0     -> 'eq/80'               2
-*   ['lt','21']                               0     -> 'lt/21'               2
-*   ['range','20','21']                       0     -> 'range/20-21'         3
-*   ['neq','UNKNOWN']                         0     -> 'neq/UNKNOWN'         2
-*   ['object-group','PortObjectGroupName']    0     -> 'PortObjectGroupName' 2
-*   ['object-group','NetworkObjectGroupName'] 0     -> 'eq/any'              0
-*   ['object-group','UNKNOWN']                0     -> 'UNKNOWN'             2
-*   ['host']                                  0     -> 'eq/any'              0
-*   ['any']                                   0     -> 'eq/any'              0
-*   ['x.x.x.x']                               0     -> 'eq/any'              0
-*   ['x:x:x::x']                              0     -> 'eq/any'              0
-*   ['log']                                   0     -> 'eq/any'              0
-*   ['UNKNOWN']                               0     -> 'eq/any'              0
-*   []                                        0     -> 'eq/any'              0
+*   arrayToken                                index intPortType          Return['value']       Return['next_index']
+*   ---------------------------------------------------------------------------------------------------------------
+*   ['eq','https']                            0     PORT_TYPE_TCP_UDP -> 'eq/443'              2
+*   ['eq','80']                               0     PORT_TYPE_TCP_UDP -> 'eq/80'               2
+*   ['lt','21']                               0     PORT_TYPE_TCP_UDP -> 'lt/21'               2
+*   ['eq','www']                              0     PORT_TYPE_TCP_UDP -> 'eq/80'               2
+*   ['eq','www']                              0     PORT_TYPE_TCP     -> 'eq/80'               2
+*   ['eq','www']                              0     PORT_TYPE_UDP     -> 'eq/80'               2
+*   ['eq','rsh']                              0     PORT_TYPE_TCP_UDP -> 'eq/rsh'              2
+*   ['eq','rsh']                              0     PORT_TYPE_TCP     -> 'eq/514'              2
+*   ['eq','rsh']                              0     PORT_TYPE_UDP     -> 'eq/rsh'              2
+*   ['eq','syslog']                           0     PORT_TYPE_TCP_UDP -> 'eq/syslog'           2
+*   ['eq','syslog']                           0     PORT_TYPE_TCP     -> 'eq/syslog'           2
+*   ['eq','syslog']                           0     PORT_TYPE_UDP     -> 'eq/514'              2
+*   ['range','20','21']                       0     PORT_TYPE_TCP_UDP -> 'range/20-21'         3
+*   ['neq','UNKNOWN']                         0     PORT_TYPE_TCP_UDP -> 'neq/UNKNOWN'         2
+*   ['object-group','PortObjectGroupName']    0     PORT_TYPE_TCP_UDP -> 'PortObjectGroupName' 2
+*   ['object-group','NetworkObjectGroupName'] 0     PORT_TYPE_TCP_UDP -> 'eq/any'              0
+*   ['object-group','UNKNOWN']                0     PORT_TYPE_TCP_UDP -> 'UNKNOWN'             2
+*   ['host']                                  0     PORT_TYPE_TCP_UDP -> 'eq/any'              0
+*   ['any']                                   0     PORT_TYPE_TCP_UDP -> 'eq/any'              0
+*   ['x.x.x.x']                               0     PORT_TYPE_TCP_UDP -> 'eq/any'              0
+*   ['x:x:x::x']                              0     PORT_TYPE_TCP_UDP -> 'eq/any'              0
+*   ['log']                                   0     PORT_TYPE_TCP_UDP -> 'eq/any'              0
+*   ['UNKNOWN']                               0     PORT_TYPE_TCP_UDP -> 'eq/any'              0
+*   []                                        0     PORT_TYPE_TCP_UDP -> 'eq/any'              0
 */
-function extractPortConditionOrObjectGroupNameFromAce(arrayToken, index) {
+function extractPortConditionOrObjectGroupNameFromAce(arrayToken, index, intPortType) {
     const objReturn = {};
     let strValue = 'eq/any';
-
     if (arrayToken[index]) {
         if (arrayToken[index] === 'object-group') {
             if (g_ObjectGroup_Network[arrayToken[index+1]]) { // network object-group.
@@ -1688,7 +2179,7 @@ function extractPortConditionOrObjectGroupNameFromAce(arrayToken, index) {
                 index += 2;
             }
         } else {
-            const objPortCondition = extractPortConditionFromAce(arrayToken, index);
+            const objPortCondition = extractPortConditionFromAce(arrayToken, index, intPortType);
             if (objPortCondition['next_index'] > index) {
                 strValue = objPortCondition['value'];
                 index = objPortCondition['next_index'];
@@ -1708,39 +2199,41 @@ function extractPortConditionOrObjectGroupNameFromAce(arrayToken, index) {
 *
 * @param {Array} arrayToken
 * @param {number} index
+* @param {boolean} boolIcmp6
 * @return {Object}
 *   An associative array of the normalized string of icmp-type and icmp-code
 *   and the next index of the ACE token.
 *
 * @example
-*   arrayToken                                 index    Return['value']           Return['next_index']
-*   --------------------------------------------------------------------------------------------------
-*   ['0','255']                                0     -> '0/255'                   2
-*   ['echo','255']                             0     -> '8/255'                   2
-*   ['object-group','IcmpTypeObjectGroupName'] 0     -> 'IcmpTypeObjectGroupName' 2
-*   ['object-group','UNKNOWN']                 0     -> 'UNKNOWN'                 2
-*   ['0']                                      0     -> '0/any'                   1
-*   ['echo']                                   0     -> '8/any'                   1
-*   ['0','log']                                0     -> '0/any'                   1
-*   ['echo','log']                             0     -> '8/any'                   1
-*   ['log']                                    0     -> 'any/any'                 0
-*   ['UNKNOWN']                                0     -> 'any/any'                 0
-*   []                                         0     -> 'any/any'                 0
+*   arrayToken                                 index boolIcmp6    Return['value']           Return['next_index']
+*   ------------------------------------------------------------------------------------------------------------
+*   ['0','255']                                0     false     -> '0/255'                   2
+*   ['echo','255']                             0     false     -> '8/255'                   2
+*   ['echo','255']                             0     true      -> '128/255'                 2
+*   ['object-group','IcmpTypeObjectGroupName'] 0     false     -> 'IcmpTypeObjectGroupName' 2
+*   ['object-group','UNKNOWN']                 0     false     -> 'UNKNOWN'                 2
+*   ['0']                                      0     false     -> '0/any'                   1
+*   ['echo']                                   0     false     -> '8/any'                   1
+*   ['echo']                                   0     true      -> '128/any'                 1
+*   ['0','log']                                0     false     -> '0/any'                   1
+*   ['echo','log']                             0     false     -> '8/any'                   1
+*   ['echo','log']                             0     true      -> '128/any'                 1
+*   ['log']                                    0     false     -> 'any/any'                 0
+*   ['UNKNOWN']                                0     false     -> 'any/any'                 0
+*   []                                         0     false     -> 'any/any'                 0
 */
-function extractIcmpTypeAndCodeFromAceOrObjectGroupNameFromAce(arrayToken, index) {
+function extractIcmpTypeAndCodeFromAceOrObjectGroupNameFromAce(arrayToken, index, boolIcmp6) {
     const objReturn = {};
-    let strValue = '';
-
-    if (!arrayToken[index]) {
-        // Not token exists.
-        strValue = 'any/any';
-    } else if (arrayToken[index] === 'object-group') {
-        strValue = arrayToken[index+1]; // object-group name.
-        index += 2;
-    } else {
-        const objIcmpTypeAndCode = extractIcmpTypeAndCodeFromAce(arrayToken, index);
-        strValue = objIcmpTypeAndCode['value'];
-        index = objIcmpTypeAndCode['next_index'];
+    let strValue = 'any/any';
+    if (arrayToken[index]) {
+        if (arrayToken[index] === 'object-group') {
+            strValue = arrayToken[index+1]; // object-group name.
+            index += 2;
+        } else {
+            const objIcmpTypeAndCode = extractIcmpTypeAndCodeFromAce(arrayToken, index, boolIcmp6);
+            strValue = objIcmpTypeAndCode['value'];
+            index = objIcmpTypeAndCode['next_index'];
+        }
     }
     objReturn['value'] = strValue;
     objReturn['next_index'] = index;
@@ -1855,17 +2348,18 @@ function normalizeNetworkObject(arrayToken) {
 *       ----------------------------
 *       ['ip']       0     -> 'ip'
 *   icmp or icmp6:
-*       arrayToken            index    Return
-*       ------------------------------------------
-*       ['icmp']              0     -> '1/any/any'
-*       ['icmp6','0','255']   0     -> '58/0/255'
-*       ['1','echo','255']    0     -> '1/8/255'
-*       ['58','0']            0     -> '58/0/any'
-*       ['1','echo']          0     -> '1/8/any'
-*       ['icmp','0','log']    0     -> '1/0/any'
-*       ['icmp','echo','log'] 0     -> '1/8/any'
-*       ['icmp','log']        0     -> '1/any/any'
-*       ['icmp','UNKNOWN']    0     -> '1/any/any'
+*       arrayToken             index    Return
+*       -------------------------------------------
+*       ['icmp']               0     -> '1/any/any'
+*       ['icmp6','0','255']    0     -> '58/0/255'
+*       ['1','echo','255']     0     -> '1/8/255'
+*       ['58','0']             0     -> '58/0/any'
+*       ['1','echo']           0     -> '1/8/any'
+*       ['icmp','0','log']     0     -> '1/0/any'
+*       ['icmp','echo','log']  0     -> '1/8/any'
+*       ['icmp6','echo','log'] 0     -> '58/128/any'
+*       ['icmp','log']         0     -> '1/any/any'
+*       ['icmp','UNKNOWN']     0     -> '1/any/any'
 *   tcp or udp:
 *       arrayToken                                                                  index    Return
 *       -------------------------------------------------------------------------------------------------------------------------
@@ -1907,35 +2401,36 @@ function normalizeServiceObject(arrayToken, index) {
         case '1':
         case '58':
             {
-                const objIcmpTypeAndCode = extractIcmpTypeAndCodeFromAce(arrayToken, index);
+                const objIcmpTypeAndCode = extractIcmpTypeAndCodeFromAce(arrayToken, index, strProtocolNumber === '58');
                 strNormalizedServiceObject = strProtocolNumber + '/' + objIcmpTypeAndCode['value'];
             }
             break;
         case '6':
         case '17':
             {
+                const intPortType = strProtocolNumber === '6' ? PORT_TYPE_TCP : PORT_TYPE_UDP;
                 let strSrcPort = 'eq/any';
                 let strDstPort = 'eq/any';
                 if (arrayToken[index]) {
                     if ((arrayToken.length - index) >= 6) { // Source and Destination exist.
                         if (arrayToken[index] === 'source' && isOperator(arrayToken[index+1])) {
-                            const objPortCondition = extractPortConditionFromAce(arrayToken, index+1);
+                            const objPortCondition = extractPortConditionFromAce(arrayToken, index+1, intPortType);
                             strSrcPort = objPortCondition['value'];
                         } else {
                             console.warn(`Invalid keyword of the source operator. ${arrayToken}`);
                         }
                         index += (strSrcPort.substring(0, 5) === 'range') ? 4 : 3;
                         if (arrayToken[index] === 'destination' && isOperator(arrayToken[index+1])) {
-                            const objPortCondition = extractPortConditionFromAce(arrayToken, index+1);
+                            const objPortCondition = extractPortConditionFromAce(arrayToken, index+1, intPortType);
                             strDstPort = objPortCondition['value'];
                         } else {
                             console.warn(`Invalid keyword of the destination operator. ${arrayToken}`);
                         }
                     } else if (arrayToken[index] === 'source' && isOperator(arrayToken[index+1])) {
-                        const objPortCondition = extractPortConditionFromAce(arrayToken, index+1);
+                        const objPortCondition = extractPortConditionFromAce(arrayToken, index+1, intPortType);
                         strSrcPort = objPortCondition['value'];
                     } else if (arrayToken[index] === 'destination' && isOperator(arrayToken[index+1])) {
-                        const objPortCondition = extractPortConditionFromAce(arrayToken, index+1);
+                        const objPortCondition = extractPortConditionFromAce(arrayToken, index+1, intPortType);
                         strDstPort = objPortCondition['value'];
                     } else {
                         console.warn(`Invalid keyword in service object. ${arrayToken}`);
@@ -2139,6 +2634,7 @@ function makeAsaObjectGroupList(configToFlat) {
     g_ObjectGroup_IcmpType = {};
     let strKey = '';
     let intObjectGroupType = OBJECT_GROUP_TYPE_UNKNOWN;
+    let intPortGroupType = PORT_TYPE_UNKNOWN;
 
     for (let i=0; i<arrayText.length; ++i) {
         let strLine = arrayText[i];
@@ -2178,7 +2674,7 @@ function makeAsaObjectGroupList(configToFlat) {
                     intObjectGroupType = t_AsaObjectGroupType[arrayToken[1]];
                     if (intObjectGroupType == OBJECT_GROUP_TYPE_SERVICE && arrayToken[3]) {
                         intObjectGroupType = OBJECT_GROUP_TYPE_PORT;
-                        // No need to keep the protocol type of port object-group due to the protocol type can recognize by ACE's protocol.
+                        intPortGroupType = arrayToken[3] === 'tcp-udp' ? PORT_TYPE_TCP_UDP : arrayToken[3] === 'tcp' ? PORT_TYPE_TCP : PORT_TYPE_UDP;
                     }
                 } else {
                     console.warn(`Unknown object-group type. ${arrayToken}`);
@@ -2265,7 +2761,7 @@ function makeAsaObjectGroupList(configToFlat) {
                 if (arrayToken[0] === 'description') {
                     // Skip if description line.
                 } else if (arrayToken[0] === 'port-object') {
-                    const objPortCondition = extractPortConditionFromAce(arrayToken, 1);
+                    const objPortCondition = extractPortConditionFromAce(arrayToken, 1, intPortGroupType);
                     const strPortCondition = (objPortCondition['next_index'] == 1) ? (arrayToken[1] ? arrayToken[1] : 'undefined') : objPortCondition['value']; // Set 'undefined' if the next token of 'port-object' does not exist.
                     if (g_ObjectGroup_Port[strKey]) {
                         g_ObjectGroup_Port[strKey].push(strPortCondition);
@@ -2309,7 +2805,7 @@ function makeAsaObjectGroupList(configToFlat) {
                 if (arrayToken[0] === 'description') {
                     // Skip if description line.
                 } else if (arrayToken[0] === 'icmp-object') {
-                    const objIcmpType = extractIcmpTypeFromAce(arrayToken, 1);
+                    const objIcmpType = extractIcmpTypeFromAce(arrayToken, 1, false); // icmp-type object-group is treated as IPv4 icmp.
                     const strIcmpType = (objIcmpType['next_index'] == 1) ? (arrayToken[1] ? arrayToken[1] : 'undefined') : objIcmpType['value']; // Set 'undefined' if the next token of 'icmp-object' does not exist.
                     if (g_ObjectGroup_IcmpType[strKey]) {
                         g_ObjectGroup_IcmpType[strKey].push(strIcmpType);
@@ -2358,19 +2854,21 @@ function makeAsaObjectGroupList(configToFlat) {
 *      Results of g_ProtocolTypeBit
 *   ----------------------------------------------------------------------------------------
 *   -> g_ProtocolTypeBit['0']             = PROTOCOL_TYPE_BIT_UNSUPPORTED
-*   -> g_ProtocolTypeBit['1']             = PROTOCOL_TYPE_BIT_ICMP_ICMP6
+*   -> g_ProtocolTypeBit['1']             = PROTOCOL_TYPE_BIT_ICMP
 *   -> g_ProtocolTypeBit['2' to '5']      = PROTOCOL_TYPE_BIT_UNSUPPORTED
-*   -> g_ProtocolTypeBit['6']             = PROTOCOL_TYPE_BIT_TCP_UDP
+*   -> g_ProtocolTypeBit['6']             = PROTOCOL_TYPE_BIT_TCP
 *   -> g_ProtocolTypeBit['7' to '16']     = PROTOCOL_TYPE_BIT_UNSUPPORTED
-*   -> g_ProtocolTypeBit['17']            = PROTOCOL_TYPE_BIT_TCP_UDP
+*   -> g_ProtocolTypeBit['17']            = PROTOCOL_TYPE_BIT_UDP
 *   -> g_ProtocolTypeBit['18' to '57']    = PROTOCOL_TYPE_BIT_UNSUPPORTED
-*   -> g_ProtocolTypeBit['58']            = PROTOCOL_TYPE_BIT_ICMP_ICMP6
+*   -> g_ProtocolTypeBit['58']            = PROTOCOL_TYPE_BIT_ICMP6
 *   -> g_ProtocolTypeBit['59' to '255']   = PROTOCOL_TYPE_BIT_UNSUPPORTED
 *   -> g_ProtocolTypeBit['ip']            = PROTOCOL_TYPE_BIT_IP
-*   -> g_ProtocolTypeBit['icmp', 'icmp6'] = PROTOCOL_TYPE_BIT_ICMP_ICMP6
-*   -> g_ProtocolTypeBit['tcp', 'udp']    = PROTOCOL_TYPE_BIT_TCP_UDP
+*   -> g_ProtocolTypeBit['icmp']          = PROTOCOL_TYPE_BIT_ICMP
+*   -> g_ProtocolTypeBit['icmp6']         = PROTOCOL_TYPE_BIT_ICMP6
+*   -> g_ProtocolTypeBit['tcp']           = PROTOCOL_TYPE_BIT_TCP
+*   -> g_ProtocolTypeBit['udp']           = PROTOCOL_TYPE_BIT_UDP
 *   -> g_ProtocolTypeBit['Name1']         = PROTOCOL_TYPE_BIT_IP
-*   -> g_ProtocolTypeBit['Name2']         = PROTOCOL_TYPE_BIT_IP | PROTOCOL_TYPE_BIT_TCP_UDP
+*   -> g_ProtocolTypeBit['Name2']         = PROTOCOL_TYPE_BIT_IP | PROTOCOL_TYPE_BIT_UDP
 *   -> g_ProtocolTypeBit['Name3']         = PROTOCOL_TYPE_BIT_SERVICE
 *   -> g_ProtocolTypeBit['Name4']         = PROTOCOL_TYPE_BIT_SERVICE
 */
@@ -2383,14 +2881,14 @@ function makeProtocolTypeBitList() {
     }
 
     // Overwrite by supported protocol.
-    for (let key in t_SupportedProtocolTypeBit) { // eslint-disable-line prefer-const
+    for (const key in t_SupportedProtocolTypeBit) {
         if (t_SupportedProtocolTypeBit.hasOwnProperty(key)) {
             g_ProtocolTypeBit[key] = t_SupportedProtocolTypeBit[key];
         }
     }
 
     // Append all protocol object-groups' type bits to the protocol type bit list.
-    for (let key in g_ObjectGroup_Protocol) { // eslint-disable-line prefer-const
+    for (const key in g_ObjectGroup_Protocol) {
         if (g_ObjectGroup_Protocol.hasOwnProperty(key)) {
             const array = g_ObjectGroup_Protocol[key];
             let intProtocolTypeBit = PROTOCOL_TYPE_BIT_NONE;
@@ -2402,14 +2900,14 @@ function makeProtocolTypeBitList() {
     }
 
     // Append all service objects as PROTOCOL_TYPE_BIT_SERVICE to the protocol type bit list.
-    for (let key in g_Object_Service) { // eslint-disable-line prefer-const
+    for (const key in g_Object_Service) {
         if (g_Object_Service.hasOwnProperty(key)) {
             g_ProtocolTypeBit[key] = PROTOCOL_TYPE_BIT_SERVICE;
         }
     }
 
     // Append all service object-groups as PROTOCOL_TYPE_BIT_SERVICE to the protocol type bit list.
-    for (let key in g_ObjectGroup_Service) { // eslint-disable-line prefer-const
+    for (const key in g_ObjectGroup_Service) {
         if (g_ObjectGroup_Service.hasOwnProperty(key)) {
             g_ProtocolTypeBit[key] = PROTOCOL_TYPE_BIT_SERVICE;
         }
@@ -2422,19 +2920,20 @@ function makeProtocolTypeBitList() {
 *
 * ACL Normalization normalizes all ACEs to the following format.
 *
-*   ACL_NAME {standard|extended} {permit|deny} PROT S_ADDR S_PORT D_ADDR D_PORT I_TPCD {active|inactive}
+*   ACL_NAME,ACL_LINE,{standard|extended},{permit|deny},PROT,S_ADDR,S_PORT,D_ADDR,D_PORT,I_TPCD,{active|inactive}
 *
-*     ACL_NAME   access-list name
-*     PROT       protocol name or number
-*     S_ADDR     source network address
-*     S_PORT     source port condition
-*     D_ADDR     destination network address
-*     D_PORT     destination port condition
-*     I_TPCD     icmp-type and icmp-code
+*     ACL_NAME     access-list name
+*     ACL_LINE     access-list line number
+*     PROT         protocol name or number
+*     S_ADDR       source network address
+*     S_PORT       source port condition
+*     D_ADDR       destination network address
+*     D_PORT       destination port condition
+*     I_TPCD       icmp-type and icmp-code
 *
 * This format is described as following rules.
 *
-*  - ACL_NAME is the same as configuration.
+*  - ACL_NAME and ACL_LINE are the same as configuration.
 *  - PROT format is the following. The protocol name except 'ip' is converted
 *    to the number. If the protocol name is 'ip', it is not converted.
 *
@@ -2511,10 +3010,11 @@ function isAceInactive(arrayToken, indexOfLogOrInactive) {
 * This function normalizes standard ACE and returns its string.
 *
 * @param {Array} arrayToken
+* @param {number} intAclLine
 * @return {string} The normalized standard ACE
 *
 */
-function normalizeStandardAce(arrayToken) {
+function normalizeStandardAce(arrayToken, intAclLine) {
     let index = 1;
     const strAclName = arrayToken[index++];
     const strAclType = arrayToken[index++];
@@ -2529,7 +3029,7 @@ function normalizeStandardAce(arrayToken) {
     const strActive = isAceInactive(arrayToken, index) ? 'inactive' : 'active';
 
     // Return the normalized string.
-    return (strAclName + ',' + strAclType + ',' + strPermit + ',ip,0.0.0.0/0,-/-,' + strDstIP + ',-/-,-/-,' + strActive);
+    return (strAclName + ',' + intAclLine + ',' + strAclType + ',' + strPermit + ',ip,0.0.0.0/0,-/-,' + strDstIP + ',-/-,-/-,' + strActive);
 }
 
 /**
@@ -2537,10 +3037,11 @@ function normalizeStandardAce(arrayToken) {
 * See the 'ACL Normalization' comment above for detail.
 *
 * @param {Array} arrayToken
+* @param {number} intAclLine
 * @return {string} The normalized extended ACE.
 *
 */
-function normalizeExtendedAce(arrayToken) {
+function normalizeExtendedAce(arrayToken, intAclLine) {
     let index = 1;
     const strAclName    = arrayToken[index++];
     const strAclType    = arrayToken[index++];
@@ -2553,6 +3054,7 @@ function normalizeExtendedAce(arrayToken) {
     let strIcmpTypeCode = '';
     let objReturn     = {};
     let intProtocolTypeBit = PROTOCOL_TYPE_BIT_NONE;
+    let boolPortNotAllowed = false;
 
     // Get the protocol object-group name, service object-group name, service object name, protocol name, or protocol number.
     if (arrayToken[index] === 'object-group') {
@@ -2573,6 +3075,14 @@ function normalizeExtendedAce(arrayToken) {
     // Get protocol type bit from protocol string.
     intProtocolTypeBit = g_ProtocolTypeBit[strProtocol];
 
+    // Determine the ACE can use the port. The ACE can not specify the port if IP or multiple protocols.
+    boolPortNotAllowed =
+        ((intProtocolTypeBit & (PROTOCOL_TYPE_BIT_IP | PROTOCOL_TYPE_BIT_UNSUPPORTED)) > 0 ||
+         (intProtocolTypeBit & (PROTOCOL_TYPE_BIT_ICMP | PROTOCOL_TYPE_BIT_TCP)) == (PROTOCOL_TYPE_BIT_ICMP | PROTOCOL_TYPE_BIT_TCP) ||
+         (intProtocolTypeBit & (PROTOCOL_TYPE_BIT_ICMP | PROTOCOL_TYPE_BIT_UDP)) == (PROTOCOL_TYPE_BIT_ICMP | PROTOCOL_TYPE_BIT_UDP) ||
+         (intProtocolTypeBit & (PROTOCOL_TYPE_BIT_ICMP6 | PROTOCOL_TYPE_BIT_TCP)) == (PROTOCOL_TYPE_BIT_ICMP6 | PROTOCOL_TYPE_BIT_TCP) ||
+         (intProtocolTypeBit & (PROTOCOL_TYPE_BIT_ICMP6 | PROTOCOL_TYPE_BIT_UDP)) == (PROTOCOL_TYPE_BIT_ICMP6 | PROTOCOL_TYPE_BIT_UDP));
+
     // Get the source address.
     if (arrayToken[index] === 'object-group') {
         if (g_ObjectGroup_Network[arrayToken[index+1]]) {
@@ -2591,17 +3101,17 @@ function normalizeExtendedAce(arrayToken) {
     }
 
     // Get the source port.
-    if ((intProtocolTypeBit & (PROTOCOL_TYPE_BIT_IP | PROTOCOL_TYPE_BIT_UNSUPPORTED)) > 0 || intProtocolTypeBit == (PROTOCOL_TYPE_BIT_ICMP_ICMP6 | PROTOCOL_TYPE_BIT_TCP_UDP)) {
+    if (boolPortNotAllowed) {
         // Can not specify the source port if multiple protocols.
         strSrcPort = '-/-';
-    } else if ((intProtocolTypeBit & PROTOCOL_TYPE_BIT_ICMP_ICMP6) > 0) {
+    } else if ((intProtocolTypeBit & (PROTOCOL_TYPE_BIT_ICMP | PROTOCOL_TYPE_BIT_ICMP6)) > 0) {
         strSrcPort = '-/-';
-    } else if ((intProtocolTypeBit & PROTOCOL_TYPE_BIT_TCP_UDP) > 0) {
+    } else if ((intProtocolTypeBit & (PROTOCOL_TYPE_BIT_TCP | PROTOCOL_TYPE_BIT_UDP)) > 0) {
         if (arrayToken[index] === 'object-group' && g_ObjectGroup_Port[arrayToken[index+1]]) {
             strSrcPort = arrayToken[index+1]; // object-group name.
             index += 2;
         } else {
-            objReturn = extractPortConditionOrObjectGroupNameFromAce(arrayToken, index);
+            objReturn = extractPortConditionOrObjectGroupNameFromAce(arrayToken, index, (intProtocolTypeBit & PROTOCOL_TYPE_BIT_TCP) > 0 ? PORT_TYPE_TCP : PORT_TYPE_UDP);
             strSrcPort = objReturn['value'];
             index = objReturn['next_index'];
         }
@@ -2634,11 +3144,11 @@ function normalizeExtendedAce(arrayToken) {
     }
 
     // Get the destination port if tcp or udp. Get the icmp-type and icmp-code if icmp or icmp6.
-    if ((intProtocolTypeBit & (PROTOCOL_TYPE_BIT_IP | PROTOCOL_TYPE_BIT_UNSUPPORTED)) > 0 || intProtocolTypeBit == (PROTOCOL_TYPE_BIT_ICMP_ICMP6 | PROTOCOL_TYPE_BIT_TCP_UDP)) {
+    if (boolPortNotAllowed) {
         // Can not specify the destination port, icmp-type, and icmp-code if multiple protocols.
         strDstPort = '-/-';
         strIcmpTypeCode = '-/-';
-    } else if ((intProtocolTypeBit & PROTOCOL_TYPE_BIT_ICMP_ICMP6) > 0) {
+    } else if ((intProtocolTypeBit & (PROTOCOL_TYPE_BIT_ICMP | PROTOCOL_TYPE_BIT_ICMP6)) > 0) {
         strDstPort = '-/-';
         if (arrayToken[index] === 'object-group') {
             if (g_ObjectGroup_IcmpType[arrayToken[index+1]]) {
@@ -2646,16 +3156,16 @@ function normalizeExtendedAce(arrayToken) {
                 index += 2;
             }
         } else {
-            objReturn = extractIcmpTypeAndCodeFromAceOrObjectGroupNameFromAce(arrayToken, index);
+            objReturn = extractIcmpTypeAndCodeFromAceOrObjectGroupNameFromAce(arrayToken, index, (intProtocolTypeBit & PROTOCOL_TYPE_BIT_ICMP6) > 0);
             strIcmpTypeCode = objReturn['value'];
             index = objReturn['next_index'];
         }
-    } else if ((intProtocolTypeBit & PROTOCOL_TYPE_BIT_TCP_UDP) > 0) {
+    } else if ((intProtocolTypeBit & (PROTOCOL_TYPE_BIT_TCP | PROTOCOL_TYPE_BIT_UDP)) > 0) {
         if (arrayToken[index] === 'object-group' && g_ObjectGroup_Port[arrayToken[index+1]]) {
             strDstPort = arrayToken[index+1]; // object-group name.
             index += 2;
         } else {
-            objReturn = extractPortConditionOrObjectGroupNameFromAce(arrayToken, index);
+            objReturn = extractPortConditionOrObjectGroupNameFromAce(arrayToken, index, (intProtocolTypeBit & PROTOCOL_TYPE_BIT_TCP) > 0 ? PORT_TYPE_TCP : PORT_TYPE_UDP);
             strDstPort = objReturn['value'];
             index = objReturn['next_index'];
         }
@@ -2677,7 +3187,7 @@ function normalizeExtendedAce(arrayToken) {
     const strActive = isAceInactive(arrayToken, index) ? 'inactive' : 'active';
 
     // Return the normalized string.
-    return (strAclName + ',' + strAclType + ',' + strPermit + ',' + strProtocol + ',' + strSrcIP + ',' + strSrcPort + ',' + strDstIP + ',' + strDstPort + ',' + strIcmpTypeCode + ',' + strActive);
+    return (strAclName + ',' + intAclLine + ',' + strAclType + ',' + strPermit + ',' + strProtocol + ',' + strSrcIP + ',' + strSrcPort + ',' + strDstIP + ',' + strDstPort + ',' + strIcmpTypeCode + ',' + strActive);
 }
 
 /**
@@ -2695,6 +3205,8 @@ function normalizeAcl(configToFlat, arrayNormalizedAcl) {
     const arrayText = configToFlat.split(/\r\n|\r|\n/);
 
     let indexAcl = 0;
+    let strAclName = '';
+    let intAclLine = 0;
 
     for (let i=0; i<arrayText.length; ++i) {
         let strLine = arrayText[i];
@@ -2721,12 +3233,20 @@ function normalizeAcl(configToFlat, arrayNormalizedAcl) {
         const arrayToken = strLine.split(/\s+/);
 
         //
+        if (strAclName !== arrayToken[ACLCOL_ACL_NAME]) {
+            strAclName = arrayToken[ACLCOL_ACL_NAME];
+            intAclLine = 1;
+        } else {
+            ++intAclLine;
+        }
+
+        //
         switch (arrayToken[ACLCOL_ACL_TYPE]) {
         case 'standard':
-            arrayNormalizedAcl[indexAcl++] = normalizeStandardAce(arrayToken);
+            arrayNormalizedAcl[indexAcl++] = normalizeStandardAce(arrayToken, intAclLine);
             break;
         case 'extended':
-            arrayNormalizedAcl[indexAcl++] = normalizeExtendedAce(arrayToken);
+            arrayNormalizedAcl[indexAcl++] = normalizeExtendedAce(arrayToken, intAclLine);
             break;
         case 'remark':
             // Skip remark line.
@@ -2755,12 +3275,12 @@ function normalizeAcl(configToFlat, arrayNormalizedAcl) {
 * @return {Array} The array of protocol number string.
 *
 * @example
-*   arrayToken   index g_ObjectGroup_Protocol['Name1']       Return
-*   --------------------------------------------------------------------
-*   ['Name1']    0     ['ip']                             -> ['ip']
-*   ['Name1']    0     ['ip','1']                         -> ['ip','1']
-*   ['UNKNOWN']  0     -                                  -> ['UNKNOWN']
-*   ['Name1']    1     ['ip']                             -> []
+*   arrayToken   index g_ObjectGroup_Protocol['Name1']    Return
+*   -----------------------------------------------------------------
+*   ['Name1']    0     ['ip']                          -> ['ip']
+*   ['Name1']    0     ['ip','1']                      -> ['ip','1']
+*   ['UNKNOWN']  0     -                               -> ['UNKNOWN']
+*   ['Name1']    1     ['ip']                          -> []
 */
 function getProtocolArray(arrayToken, index) {
     let array = [];
@@ -2786,14 +3306,14 @@ function getProtocolArray(arrayToken, index) {
 * @return {Array} The array of network address string.
 *
 * @example
-*   arrayToken   index g_Object_Network['Name1']    g_ObjectGroup_Network['Name1']                                       Return
-*   --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-*   ['Name1']    0     '192.168.0.1/24'             Not exist                                                         -> ['192.168.0.1/24']
-*   ['Name1']    0     Not exist                    ['2001:0db8:0001:0002:0003:0004:0005:0006/128']                   -> ['2001:0db8:0001:0002:0003:0004:0005:0006/128']
-*   ['Name1']    0     Not exist                    ['2001:0db8:0001:0002:0003:0004:0005:0006/128','www.example.com'] -> ['2001:0db8:0001:0002:0003:0004:0005:0006/128','www.example.com']
-*   ['Name1']    0     '192.168.0.1/24'             ['www.example.com']                                               -> ['192.168.0.1/24']
-*   ['UNKNOWN']  0     -                            -                                                                 -> ['UNKNOWN']
-*   ['Name1']    1     '192.168.0.1/24'             ['www.example.com']                                               -> []
+*   arrayToken   index g_Object_Network['Name1'] g_ObjectGroup_Network['Name1']                                       Return
+*   -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+*   ['Name1']    0     '192.168.0.1/24'          Not exist                                                         -> ['192.168.0.1/24']
+*   ['Name1']    0     Not exist                 ['2001:0db8:0001:0002:0003:0004:0005:0006/128']                   -> ['2001:0db8:0001:0002:0003:0004:0005:0006/128']
+*   ['Name1']    0     Not exist                 ['2001:0db8:0001:0002:0003:0004:0005:0006/128','www.example.com'] -> ['2001:0db8:0001:0002:0003:0004:0005:0006/128','www.example.com']
+*   ['Name1']    0     '192.168.0.1/24'          ['www.example.com']                                               -> ['192.168.0.1/24']
+*   ['UNKNOWN']  0     -                         -                                                                 -> ['UNKNOWN']
+*   ['Name1']    1     '192.168.0.1/24'          ['www.example.com']                                               -> []
 */
 function getNetworkArray(arrayToken, index) {
     let array = [];
@@ -2821,14 +3341,14 @@ function getNetworkArray(arrayToken, index) {
 * @return {Array} The array of service string.
 *
 * @example
-*   arrayToken   index g_Object_Service['Name1']    g_ObjectGroup_Service['Name1']                       Return
-*   ------------------------------------------------------------------------------------------------------------------------------------------------------
-*   ['Name1']    0     '6/eq/any/eq/any'            Not exist                                         -> ['6/eq/any/eq/any']
-*   ['Name1']    0     Not exist                    ['6/range/20001-20199/eq/any']                    -> ['6/range/20001-20199/eq/any']
-*   ['Name1']    0     Not exist                    ['6/range/20001-20199/eq/any','17/gt/514/eq/any'] -> ['6/range/20001-20199/eq/any','17/gt/514/eq/any']
-*   ['Name1']    0     '6/eq/any/eq/any'            ['6/range/20001-20199/eq/any']                    -> ['6/eq/any/eq/any']
-*   ['UNKNOWN']  0     -                            -                                                 -> ['UNKNOWN']
-*   ['Name1']    1     '6/eq/any/eq/any'            ['6/range/20001-20199/eq/any']                    -> []
+*   arrayToken   index g_Object_Service['Name1'] g_ObjectGroup_Service['Name1']                       Return
+*   ---------------------------------------------------------------------------------------------------------------------------------------------------
+*   ['Name1']    0     '6/eq/any/eq/any'         Not exist                                         -> ['6/eq/any/eq/any']
+*   ['Name1']    0     Not exist                 ['6/range/20001-20199/eq/any']                    -> ['6/range/20001-20199/eq/any']
+*   ['Name1']    0     Not exist                 ['6/range/20001-20199/eq/any','17/gt/514/eq/any'] -> ['6/range/20001-20199/eq/any','17/gt/514/eq/any']
+*   ['Name1']    0     '6/eq/any/eq/any'         ['6/range/20001-20199/eq/any']                    -> ['6/eq/any/eq/any']
+*   ['UNKNOWN']  0     -                         -                                                 -> ['UNKNOWN']
+*   ['Name1']    1     '6/eq/any/eq/any'         ['6/range/20001-20199/eq/any']                    -> []
 */
 function getServiceArray(arrayToken, index) {
     let array = [];
@@ -2855,12 +3375,12 @@ function getServiceArray(arrayToken, index) {
 * @return {Array} The array of port condition string.
 *
 * @example
-*   arrayToken   index g_ObjectGroup_Port['Name1']       Return
-*   ---------------------------------------------------------------------------
-*   ['Name1']    0     ['eq/0']                       -> ['eq/0']
-*   ['Name1']    0     ['eq/0','range/80-81']         -> ['eq/0','range/80-81']
-*   ['UNKNOWN']  0     -                              -> ['UNKNOWN']
-*   ['Name1']    1     ['eq/0']                       -> []
+*   arrayToken   index g_ObjectGroup_Port['Name1']    Return
+*   ------------------------------------------------------------------------
+*   ['Name1']    0     ['eq/0']                    -> ['eq/0']
+*   ['Name1']    0     ['eq/0','range/80-81']      -> ['eq/0','range/80-81']
+*   ['UNKNOWN']  0     -                           -> ['UNKNOWN']
+*   ['Name1']    1     ['eq/0']                    -> []
 */
 function getPortArray(arrayToken, index) {
     let array = [];
@@ -2885,12 +3405,12 @@ function getPortArray(arrayToken, index) {
 * @return {Array} The array of icmp-type number string.
 *
 * @example
-*   arrayToken   index g_ObjectGroup_IcmpType['Name1']       Return
-*   --------------------------------------------------------------------
-*   ['Name1']    0     ['0']                              -> ['0']
-*   ['Name1']    0     ['0','1']                          -> ['0','1']
-*   ['UNKNOWN']  0     -                                  -> ['UNKNOWN']
-*   ['Name1']    1     ['0']                              -> []
+*   arrayToken   index g_ObjectGroup_IcmpType['Name1']    Return
+*   -----------------------------------------------------------------
+*   ['Name1']    0     ['0']                           -> ['0']
+*   ['Name1']    0     ['0','1']                       -> ['0','1']
+*   ['UNKNOWN']  0     -                               -> ['UNKNOWN']
+*   ['Name1']    1     ['0']                           -> []
 */
 function getIcmpTypeArray(arrayToken, index) {
     let array = [];
@@ -2906,6 +3426,145 @@ function getIcmpTypeArray(arrayToken, index) {
 }
 
 /**
+* @param {string} strProtocol
+* @return {string} The protocol name for ACL element.
+*/
+function toProtocolOfAclElement(strProtocol) {
+    if (strProtocol !== 'ip') {
+        const strName = getProtocolNameFromProtocolNumberString(strProtocol);
+        if (strName == undefined) {
+            if (g_Object_Service[strProtocol]) {
+                strProtocol = 'object ' + strProtocol;
+            } else if (g_ObjectGroup_Protocol[strProtocol] || g_ObjectGroup_Service[strProtocol]) {
+                strProtocol = 'object-group ' + strProtocol;
+            }
+        } else {
+            strProtocol = strName;
+        }
+    }
+    return strProtocol;
+}
+
+/**
+* @param {string} strAddr
+* @return {string} The address string for ACL element.
+*/
+function toAddrOfAclElement(strAddr) {
+    if (strAddr === '0/0') {
+        strAddr = 'any';
+    } else if (strAddr === '0.0.0.0/0') {
+        strAddr = 'any4';
+    } else if (strAddr === '0000:0000:0000:0000:0000:0000:0000:0000/0') {
+        strAddr = 'any6';
+    } else if (strAddr.indexOf('-') != -1) { // Range.
+        const array = strAddr.split('-');
+        const strStartAddr = array[0].indexOf(':') == -1 ? array[0] : getIPv6CompressedAddr(array[0]);
+        const strEndAddr   = array[1].indexOf(':') == -1 ? array[1] : getIPv6CompressedAddr(array[1]);
+        strAddr = 'range ' + strStartAddr + ' ' + strEndAddr;
+    } else if (strAddr.match(/^\d+\.\d+\.\d+\.\d+\/\d+$/)) { // IPv4.
+        const array = strAddr.split('/');
+        strAddr = array[1] === '32' ? 'host ' + array[0] : array[0] + ' ' + getIPv4NetMaskFromPrefixLength(parseInt(array[1]));
+    } else if (strAddr.indexOf(':') != -1) { // IPv6.
+        const array = strAddr.split('/');
+        const strCompressedIPv6 = getIPv6CompressedAddr(array[0]);
+        strAddr = array[1] === '128' ? 'host ' + strCompressedIPv6 : strCompressedIPv6 + '/' + array[1];
+    } else {
+        if (g_Object_Network[strAddr]) {
+            strAddr = 'object ' + strAddr;
+        } else if (g_ObjectGroup_Network[strAddr]) {
+            strAddr = 'object-group ' + strAddr;
+        } else { // FQDN.
+            strAddr = 'fqdn ' + strAddr;
+        }
+    }
+    return strAddr;
+}
+
+/**
+* @param {string} strPort
+* @param {number} intPortType
+* @return {string} The port condition string for ACL element.
+*/
+function toPortOfAclElement(strPort, intPortType) {
+    if (strPort === '-/-' || strPort === 'eq/any' || // Port was not specified.
+        strPort.substring(0, 1) === '?') { // Service object or object-group.
+        strPort = '';
+    } else {
+        const array = strPort.split('/');
+        if (array[0] === 'range') {
+            const arrayRange = array[1].split('-');
+            const strStartName = intPortType == PORT_TYPE_TCP ? getTcpPortNameFromTcpPortNumberString(arrayRange[0]) : getUdpPortNameFromUdpPortNumberString(arrayRange[0]);
+            const strEndName   = intPortType == PORT_TYPE_TCP ? getTcpPortNameFromTcpPortNumberString(arrayRange[1]) : getUdpPortNameFromUdpPortNumberString(arrayRange[1]);
+            strPort = array[0] + ' ' + (strStartName == undefined ? arrayRange[0] : strStartName) + ' ' + (strEndName == undefined ? arrayRange[1] : strEndName);
+        } else {
+            if (array[1]) {
+                const strName = intPortType == PORT_TYPE_TCP ? getTcpPortNameFromTcpPortNumberString(array[1]) : getUdpPortNameFromUdpPortNumberString(array[1]);
+                strPort = array[0] + ' ' + (strName == undefined ? array[1] : strName);
+            } else if (g_ObjectGroup_Port[array[0]]) {
+                strPort = 'object-group ' + array[0];
+            } else {
+                strPort = array[0];
+            }
+        }
+    }
+    return strPort;
+}
+
+/**
+* @param {string} strIcmpTypeCode
+* @param {boolean} boolIcmp6
+* @return {string} The icmp-type and icmp-code string for ACL element.
+*/
+function toIcmpTypeCodeOfAclElement(strIcmpTypeCode, boolIcmp6) {
+    if (strIcmpTypeCode === '-/-' || strIcmpTypeCode === 'any/any' || // icmp-type was not specified.
+        strIcmpTypeCode.substring(0, 1) === '?') { // Service object or object-group.
+        strIcmpTypeCode = '';
+    } else {
+        const array = strIcmpTypeCode.split('/');
+        const strName = boolIcmp6 ? getIcmp6TypeNameFromIcmp6TypeNumberString(array[0]) : getIcmpTypeNameFromIcmpTypeNumberString(array[0]);
+        if (strName == undefined) {
+            strIcmpTypeCode = g_ObjectGroup_IcmpType[array[0]] ? 'object-group ' + array[0] : array[0];
+        } else {
+            strIcmpTypeCode = strName;
+        }
+        if (array[1] && array[1] !== 'any') {
+            strIcmpTypeCode += ' ' + array[1];
+        }
+    }
+    return strIcmpTypeCode;
+}
+
+/**
+* @param {string} strNormalizedAcl
+* @return {string} ACL element.
+*/
+function toAclElement(strNormalizedAcl) {
+    const arrayToken = strNormalizedAcl.split(',');
+
+    let strAclElement = 'access-list ' + arrayToken[NMCOL_ACL_NAME] + ' line ' + arrayToken[NMCOL_ACL_LINE] + ' ' + arrayToken[NMCOL_ACL_TYPE] + ' ' + arrayToken[NMCOL_PERMIT];
+
+    if (arrayToken[NMCOL_ACL_TYPE] === 'standard') {
+        strAclElement += ' ' + toAddrOfAclElement(arrayToken[NMCOL_DST_ADDR]);
+    } else {
+        const intPortType = arrayToken[NMCOL_PROTOCOL] === '6' ? PORT_TYPE_TCP : PORT_TYPE_UDP;
+        strAclElement += ' ' + toProtocolOfAclElement(arrayToken[NMCOL_PROTOCOL]);
+        strAclElement += ' ' + toAddrOfAclElement(arrayToken[NMCOL_SRC_ADDR]);
+        strAclElement += ' ' + toPortOfAclElement(arrayToken[NMCOL_SRC_PORT], intPortType);
+        strAclElement += ' ' + toAddrOfAclElement(arrayToken[NMCOL_DST_ADDR]);
+        strAclElement += ' ' + toPortOfAclElement(arrayToken[NMCOL_DST_PORT], intPortType);
+        strAclElement += ' ' + toIcmpTypeCodeOfAclElement(arrayToken[NMCOL_ICMPTYCD], arrayToken[NMCOL_PROTOCOL] === '58');
+    }
+
+    // active or inactive.
+    if (arrayToken[NMCOL_ACTIVE] === 'inactive') {
+        strAclElement += ' ' + arrayToken[NMCOL_ACTIVE];
+    }
+
+    //
+    return strAclElement.replace(/\s+/g, ' ').trim();
+}
+
+/**
 * This function flattens the protocol object-group of the normalized ACE and
 * returns the ACL flattened.
 *
@@ -2918,12 +3577,12 @@ function getIcmpTypeArray(arrayToken, index) {
 *   g_ObjectGroup_Protocol{'Name1'} = ['ip']
 *   g_ObjectGroup_Protocol{'Name2'} = ['ip','1']
 *
-*   arrayToken                                                                                             Return
-*   ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-*   ['ACL1','extended','permit','Name1','192.168.0.1/32','-/-','192.168.1.1/32','-/-','-/-','active']   -> ['ACL1,extended,permit,ip,192.168.0.1/32,-/-,192.168.1.1/32,-/-,-/-,active']
-*   ['ACL1','extended','permit','Name2','192.168.0.1/32','-/-','192.168.1.1/32','-/-','-/-','active']   -> ['ACL1,extended,permit,ip,192.168.0.1/32,-/-,192.168.1.1/32,-/-,-/-,active',
-*                                                                                                           'ACL1,extended,permit,1,192.168.0.1/32,-/-,192.168.1.1/32,-/-,-/-,active']
-*   ['ACL1','extended','permit','UNKNOWN','192.168.0.1/32','-/-','192.168.1.1/32','-/-','-/-','active'] -> ['ACL1,extended,permit,UNKNOWN,192.168.0.1/32,-/-,192.168.1.1/32,-/-,-/-,active']
+*   arrayToken                                                                                                 Return
+*   ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+*   ['ACL1','1','extended','permit','Name1','192.168.0.1/32','-/-','192.168.1.1/32','-/-','-/-','active']   -> ['ACL1,1,extended,permit,ip,192.168.0.1/32,-/-,192.168.1.1/32,-/-,-/-,active']
+*   ['ACL1','1','extended','permit','Name2','192.168.0.1/32','-/-','192.168.1.1/32','-/-','-/-','active']   -> ['ACL1,1,extended,permit,ip,192.168.0.1/32,-/-,192.168.1.1/32,-/-,-/-,active',
+*                                                                                                               'ACL1,1,extended,permit,1,192.168.0.1/32,-/-,192.168.1.1/32,-/-,-/-,active']
+*   ['ACL1','1','extended','permit','UNKNOWN','192.168.0.1/32','-/-','192.168.1.1/32','-/-','-/-','active'] -> ['ACL1,1,extended,permit,UNKNOWN,192.168.0.1/32,-/-,192.168.1.1/32,-/-,-/-,active']
 */
 const funcFlattenProtocolObjectGroupOfNormalizedAce = function(arrayToken) {
     const arrayFlatString = [];
@@ -2932,6 +3591,7 @@ const funcFlattenProtocolObjectGroupOfNormalizedAce = function(arrayToken) {
         let index = 0;
         for (let i=0; i<arrayProtocol.length; ++i) {
             arrayFlatString[index] = arrayToken[NMCOL_ACL_NAME];
+            arrayFlatString[index] += ',' + arrayToken[NMCOL_ACL_LINE];
             arrayFlatString[index] += ',' + arrayToken[NMCOL_ACL_TYPE];
             arrayFlatString[index] += ',' + arrayToken[NMCOL_PERMIT];
             arrayFlatString[index] += ',' + arrayProtocol[i];
@@ -2964,18 +3624,18 @@ const funcFlattenProtocolObjectGroupOfNormalizedAce = function(arrayToken) {
 *   g_ObjectGroup_Network{'Name23'} = ['2001:0db8:0001:0002:0000:0000:0000:0000/64']
 *   g_ObjectGroup_Network{'Name24'} = ['2001:0db8:0001:0002:0000:0000:0000:0000/64','www2.example.com']
 *
-*   arrayToken                                                                                Return
-*   ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-*   ['ACL1','extended','permit','0','Name11','-/-','192.168.1.1/32','-/-','-/-','active']  -> ['ACL1,extended,permit,0,192.168.0.0/24,-/-,192.168.1.1/32,-/-,-/-,active']
-*   ['ACL1','extended','permit','0','192.168.0.1/32','-/-','Name23','-/-','-/-','active']  -> ['ACL1,extended,permit,0,192.168.0.1/32,-/-,2001:0db8:0001:0002:0000:0000:0000:0000/64,-/-,-/-,active']
-*   ['ACL1','extended','permit','0','192.168.0.1/32','-/-','Name24','-/-','-/-','active']  -> ['ACL1,extended,permit,0,192.168.0.1/32,-/-,2001:0db8:0001:0002:0000:0000:0000:0000/64,-/-,-/-,active',
-*                                                                                              'ACL1,extended,permit,0,192.168.0.1/32,-/-,www2.example.com,-/-,-/-,active']
-*   ['ACL1','extended','permit','0','Name22','-/-','Name24','-/-','-/-','active']          -> ['ACL1,extended,permit,0,192.168.2.0/24,-/-,2001:0db8:0001:0002:0000:0000:0000:0000/64,-/-,-/-,active',
-*                                                                                              'ACL1,extended,permit,0,192.168.2.0/24,-/-,www2.example.com,-/-,-/-,active',
-*                                                                                              'ACL1,extended,permit,0,www1.example.com,-/-,2001:0db8:0001:0002:0000:0000:0000:0000/64,-/-,-/-,active',
-*                                                                                              'ACL1,extended,permit,0,www1.example.com,-/-,www2.example.com,-/-,-/-,active']
-*   ['ACL1','extended','permit','0','UNKNOWN','-/-','Name24','-/-','-/-','active']         -> ['ACL1,extended,permit,0,UNKNOWN,-/-,2001:0db8:0001:0002:0000:0000:0000:0000/64,-/-,-/-,active',
-*                                                                                              'ACL1,extended,permit,0,UNKNOWN,-/-,www2.example.com,-/-,-/-,active']
+*   arrayToken                                                                                   Return
+*   --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+*   ['ACL1','1','extended','permit','0','Name11','-/-','192.168.1.1/32','-/-','-/-','active'] -> ['ACL1,1,extended,permit,0,192.168.0.0/24,-/-,192.168.1.1/32,-/-,-/-,active']
+*   ['ACL1','1','extended','permit','0','192.168.0.1/32','-/-','Name23','-/-','-/-','active'] -> ['ACL1,1,extended,permit,0,192.168.0.1/32,-/-,2001:0db8:0001:0002:0000:0000:0000:0000/64,-/-,-/-,active']
+*   ['ACL1','1','extended','permit','0','192.168.0.1/32','-/-','Name24','-/-','-/-','active'] -> ['ACL1,1,extended,permit,0,192.168.0.1/32,-/-,2001:0db8:0001:0002:0000:0000:0000:0000/64,-/-,-/-,active',
+*                                                                                                 'ACL1,1,extended,permit,0,192.168.0.1/32,-/-,www2.example.com,-/-,-/-,active']
+*   ['ACL1','1','extended','permit','0','Name22','-/-','Name24','-/-','-/-','active']         -> ['ACL1,1,extended,permit,0,192.168.2.0/24,-/-,2001:0db8:0001:0002:0000:0000:0000:0000/64,-/-,-/-,active',
+*                                                                                                 'ACL1,1,extended,permit,0,192.168.2.0/24,-/-,www2.example.com,-/-,-/-,active',
+*                                                                                                 'ACL1,1,extended,permit,0,www1.example.com,-/-,2001:0db8:0001:0002:0000:0000:0000:0000/64,-/-,-/-,active',
+*                                                                                                 'ACL1,1,extended,permit,0,www1.example.com,-/-,www2.example.com,-/-,-/-,active']
+*   ['ACL1','1','extended','permit','0','UNKNOWN','-/-','Name24','-/-','-/-','active']        -> ['ACL1,1,extended,permit,0,UNKNOWN,-/-,2001:0db8:0001:0002:0000:0000:0000:0000/64,-/-,-/-,active',
+*                                                                                                 'ACL1,1,extended,permit,0,UNKNOWN,-/-,www2.example.com,-/-,-/-,active']
 */
 const funcFlattenNetworkObjectAndObjectGroupOfNormalizedAce = function(arrayToken) {
     const arrayFlatString = [];
@@ -2986,6 +3646,7 @@ const funcFlattenNetworkObjectAndObjectGroupOfNormalizedAce = function(arrayToke
         for (let i=0; i<arraySrcIP.length; ++i) {
             for (let j=0; j<arrayDstIP.length; ++j) {
                 arrayFlatString[index] = arrayToken[NMCOL_ACL_NAME];
+                arrayFlatString[index] += ',' + arrayToken[NMCOL_ACL_LINE];
                 arrayFlatString[index] += ',' + arrayToken[NMCOL_ACL_TYPE];
                 arrayFlatString[index] += ',' + arrayToken[NMCOL_PERMIT];
                 arrayFlatString[index] += ',' + arrayToken[NMCOL_PROTOCOL];
@@ -3018,13 +3679,13 @@ const funcFlattenNetworkObjectAndObjectGroupOfNormalizedAce = function(arrayToke
 *   g_ObjectGroup_Service{'Name21'} = ['6/range/20001-20199/eq/any']
 *   g_ObjectGroup_Service{'Name22'} = ['6/range/20001-20199/lt/20000','17/gt/514/eq/any']
 *
-*   arrayToken                                                                                             Return
-*   -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-*   ['ACL1','extended','permit','Name11','192.168.0.1/32','-/-','192.168.1.1/32','-/-','-/-','active']  -> ['ACL1,extended,permit,6,192.168.0.1/32,eq/any,192.168.1.1/32,neq/22,-/-,active']
-*   ['ACL1','extended','permit','Name21','192.168.0.1/32','-/-','192.168.1.1/32','-/-','-/-','active']  -> ['ACL1,extended,permit,6,192.168.0.1/32,range/20001-20199,192.168.1.1/32,eq/any,-/-,active']
-*   ['ACL1','extended','permit','Name22','192.168.0.1/32','-/-','192.168.1.1/32','-/-','-/-','active']  -> ['ACL1,extended,permit,6,192.168.0.1/32,range/20001-20199,192.168.1.1/32,lt/20000,-/-,active',
-*                                                                                                           'ACL1,extended,permit,17,192.168.0.1/32,gt/514,192.168.1.1/32,eq/any,-/-,active']
-*   ['ACL1','extended','permit','UNKNOWN','192.168.0.1/32','-/-','192.168.1.1/32','-/-','-/-','active'] -> ['ACL1,extended,permit,UNKNOWN,192.168.0.1/32,-/-,192.168.1.1/32,-/-,-/-,active']
+*   arrayToken                                                                                                 Return
+*   -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+*   ['ACL1','1','extended','permit','Name11','192.168.0.1/32','-/-','192.168.1.1/32','-/-','-/-','active']  -> ['ACL1,1,extended,permit,6,192.168.0.1/32,eq/any,192.168.1.1/32,neq/22,-/-,active']
+*   ['ACL1','1','extended','permit','Name21','192.168.0.1/32','-/-','192.168.1.1/32','-/-','-/-','active']  -> ['ACL1,1,extended,permit,6,192.168.0.1/32,range/20001-20199,192.168.1.1/32,eq/any,-/-,active']
+*   ['ACL1','1','extended','permit','Name22','192.168.0.1/32','-/-','192.168.1.1/32','-/-','-/-','active']  -> ['ACL1,1,extended,permit,6,192.168.0.1/32,range/20001-20199,192.168.1.1/32,lt/20000,-/-,active',
+*                                                                                                               'ACL1,1,extended,permit,17,192.168.0.1/32,gt/514,192.168.1.1/32,eq/any,-/-,active']
+*   ['ACL1','1','extended','permit','UNKNOWN','192.168.0.1/32','-/-','192.168.1.1/32','-/-','-/-','active'] -> ['ACL1,1,extended,permit,UNKNOWN,192.168.0.1/32,-/-,192.168.1.1/32,-/-,-/-,active']
 */
 const funcFlattenServiceObjectAndServiceObjectGroupOfNormalizedAce = function(arrayToken) {
     const arrayFlatString = [];
@@ -3038,6 +3699,7 @@ const funcFlattenServiceObjectAndServiceObjectGroupOfNormalizedAce = function(ar
             const array = arrayService[i].split('/');
             if (array.length > 4) { // tcp or udp.
                 arrayFlatString[index] = arrayToken[NMCOL_ACL_NAME];
+                arrayFlatString[index] += ',' + arrayToken[NMCOL_ACL_LINE];
                 arrayFlatString[index] += ',' + arrayToken[NMCOL_ACL_TYPE];
                 arrayFlatString[index] += ',' + arrayToken[NMCOL_PERMIT];
                 arrayFlatString[index] += ',' + array[0];
@@ -3049,6 +3711,7 @@ const funcFlattenServiceObjectAndServiceObjectGroupOfNormalizedAce = function(ar
                 arrayFlatString[index] += ',' + arrayToken[NMCOL_ACTIVE];
             } else if (array.length > 1) { // icmp or icmp6
                 arrayFlatString[index] = arrayToken[NMCOL_ACL_NAME];
+                arrayFlatString[index] += ',' + arrayToken[NMCOL_ACL_LINE];
                 arrayFlatString[index] += ',' + arrayToken[NMCOL_ACL_TYPE];
                 arrayFlatString[index] += ',' + arrayToken[NMCOL_PERMIT];
                 arrayFlatString[index] += ',' + array[0];
@@ -3060,6 +3723,7 @@ const funcFlattenServiceObjectAndServiceObjectGroupOfNormalizedAce = function(ar
                 arrayFlatString[index] += ',' + arrayToken[NMCOL_ACTIVE];
             } else { // ip or protocol number.
                 arrayFlatString[index] = arrayToken[NMCOL_ACL_NAME];
+                arrayFlatString[index] += ',' + arrayToken[NMCOL_ACL_LINE];
                 arrayFlatString[index] += ',' + arrayToken[NMCOL_ACL_TYPE];
                 arrayFlatString[index] += ',' + arrayToken[NMCOL_PERMIT];
                 arrayFlatString[index] += ',' + array[0];
@@ -3091,16 +3755,16 @@ const funcFlattenServiceObjectAndServiceObjectGroupOfNormalizedAce = function(ar
 *   g_ObjectGroup_Port{'Name21'} = ['lt/80']
 *   g_ObjectGroup_Port{'Name22'} = ['lt/80','gt/10000']
 *
-*   arrayToken                                                                                              Return
-*   ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-*   ['ACL1','extended','permit','6','192.168.0.1/32','Name11','192.168.1.1/32','-/-','-/-','active']     -> ['ACL1,extended,permit,6,192.168.0.1/32,eq/0,192.168.1.1/32,-/-,-/-,active']
-*   ['ACL1','extended','permit','6','192.168.0.1/32','-/-','192.168.1.1/32','Name21','-/-','active']     -> ['ACL1,extended,permit,6,192.168.0.1/32,-/-,192.168.1.1/32,lt/80,-/-,active']
-*   ['ACL1','extended','permit','6','192.168.0.1/32','Name12','192.168.1.1/32','Name22','-/-','active']  -> ['ACL1,extended,permit,6,192.168.0.1/32,eq/0,192.168.1.1/32,lt/80,-/-,active',
-*                                                                                                            'ACL1,extended,permit,6,192.168.0.1/32,eq/0,192.168.1.1/32,gt/10000,-/-,active',
-*                                                                                                            'ACL1,extended,permit,6,192.168.0.1/32,range/80-81,192.168.1.1/32,lt/80,-/-,active',
-*                                                                                                            'ACL1,extended,permit,6,192.168.0.1/32,range/80-81,192.168.1.1/32,gt/10000,-/-,active']
-*   ['ACL1','extended','permit','6','192.168.0.1/32','UNKNOWN','192.168.1.1/32','Name22','-/-','active'] -> ['ACL1,extended,permit,6,192.168.0.1/32,UNKNOWN,192.168.1.1/32,lt/80,-/-,active',
-*                                                                                                            'ACL1,extended,permit,6,192.168.0.1/32,UNKNOWN,192.168.1.1/32,gt/10000,-/-,active']
+*   arrayToken                                                                                                  Return
+*   ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+*   ['ACL1','1','extended','permit','6','192.168.0.1/32','Name11','192.168.1.1/32','-/-','-/-','active']     -> ['ACL1,1,extended,permit,6,192.168.0.1/32,eq/0,192.168.1.1/32,-/-,-/-,active']
+*   ['ACL1','1','extended','permit','6','192.168.0.1/32','-/-','192.168.1.1/32','Name21','-/-','active']     -> ['ACL1,1,extended,permit,6,192.168.0.1/32,-/-,192.168.1.1/32,lt/80,-/-,active']
+*   ['ACL1','1','extended','permit','6','192.168.0.1/32','Name12','192.168.1.1/32','Name22','-/-','active']  -> ['ACL1,1,extended,permit,6,192.168.0.1/32,eq/0,192.168.1.1/32,lt/80,-/-,active',
+*                                                                                                                'ACL1,1,extended,permit,6,192.168.0.1/32,eq/0,192.168.1.1/32,gt/10000,-/-,active',
+*                                                                                                                'ACL1,1,extended,permit,6,192.168.0.1/32,range/80-81,192.168.1.1/32,lt/80,-/-,active',
+*                                                                                                                'ACL1,1,extended,permit,6,192.168.0.1/32,range/80-81,192.168.1.1/32,gt/10000,-/-,active']
+*   ['ACL1','1','extended','permit','6','192.168.0.1/32','UNKNOWN','192.168.1.1/32','Name22','-/-','active'] -> ['ACL1,1,extended,permit,6,192.168.0.1/32,UNKNOWN,192.168.1.1/32,lt/80,-/-,active',
+*                                                                                                                'ACL1,1,extended,permit,6,192.168.0.1/32,UNKNOWN,192.168.1.1/32,gt/10000,-/-,active']
 */
 const funcFlattenPortObjectGroupOfNormalizedAce = function(arrayToken) {
     const arrayFlatString = [];
@@ -3111,6 +3775,7 @@ const funcFlattenPortObjectGroupOfNormalizedAce = function(arrayToken) {
         for (let i=0; i<arraySrcPort.length; ++i) {
             for (let j=0; j<arrayDstPort.length; ++j) {
                 arrayFlatString[index] = arrayToken[NMCOL_ACL_NAME];
+                arrayFlatString[index] += ',' + arrayToken[NMCOL_ACL_LINE];
                 arrayFlatString[index] += ',' + arrayToken[NMCOL_ACL_TYPE];
                 arrayFlatString[index] += ',' + arrayToken[NMCOL_PERMIT];
                 arrayFlatString[index] += ',' + arrayToken[NMCOL_PROTOCOL];
@@ -3140,12 +3805,12 @@ const funcFlattenPortObjectGroupOfNormalizedAce = function(arrayToken) {
 *   g_ObjectGroup_IcmpType{'Name1'} = ['0']
 *   g_ObjectGroup_IcmpType{'Name2'} = ['0','1']
 *
-*   arrayToken                                                                                           Return
-*   ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-*   ['ACL1','extended','permit','1','192.168.0.1/32','-/-','192.168.1.1/32','-/-','Name1','active']   -> ['ACL1,extended,permit,1,192.168.0.1/32,-/-,192.168.1.1/32,-/-,0/any,active']
-*   ['ACL1','extended','permit','1','192.168.0.1/32','-/-','192.168.1.1/32','-/-','Name2','active']   -> ['ACL1,extended,permit,1,192.168.0.1/32,-/-,192.168.1.1/32,-/-,0/any,active',
-*                                                                                                         'ACL1,extended,permit,1,192.168.0.1/32,-/-,192.168.1.1/32,-/-,1/any,active'],
-*   ['ACL1','extended','permit','1','192.168.0.1/32','-/-','192.168.1.1/32','-/-','UNKNOWN','active'] -> ['ACL1,extended,permit,1,192.168.0.1/32,-/-,192.168.1.1/32,-/-,UNKNOWN/any,active']
+*   arrayToken                                                                                               Return
+*   ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+*   ['ACL1','1','extended','permit','1','192.168.0.1/32','-/-','192.168.1.1/32','-/-','Name1','active']   -> ['ACL1,1,extended,permit,1,192.168.0.1/32,-/-,192.168.1.1/32,-/-,0/any,active']
+*   ['ACL1','1','extended','permit','1','192.168.0.1/32','-/-','192.168.1.1/32','-/-','Name2','active']   -> ['ACL1,1,extended,permit,1,192.168.0.1/32,-/-,192.168.1.1/32,-/-,0/any,active',
+*                                                                                                             'ACL1,1,extended,permit,1,192.168.0.1/32,-/-,192.168.1.1/32,-/-,1/any,active'],
+*   ['ACL1','1','extended','permit','1','192.168.0.1/32','-/-','192.168.1.1/32','-/-','UNKNOWN','active'] -> ['ACL1,1,extended,permit,1,192.168.0.1/32,-/-,192.168.1.1/32,-/-,UNKNOWN/any,active']
 */
 const funcFlattenIcmpTypeObjectGroupOfNormalizedAce = function(arrayToken) {
     const arrayFlatString = [];
@@ -3154,6 +3819,7 @@ const funcFlattenIcmpTypeObjectGroupOfNormalizedAce = function(arrayToken) {
         let index = 0;
         for (let i=0; i<arrayIcmpType.length; ++i) {
             arrayFlatString[index] = arrayToken[NMCOL_ACL_NAME];
+            arrayFlatString[index] += ',' + arrayToken[NMCOL_ACL_LINE];
             arrayFlatString[index] += ',' + arrayToken[NMCOL_ACL_TYPE];
             arrayFlatString[index] += ',' + arrayToken[NMCOL_PERMIT];
             arrayFlatString[index] += ',' + arrayToken[NMCOL_PROTOCOL];
@@ -3161,7 +3827,7 @@ const funcFlattenIcmpTypeObjectGroupOfNormalizedAce = function(arrayToken) {
             arrayFlatString[index] += ',' + arrayToken[NMCOL_SRC_PORT];
             arrayFlatString[index] += ',' + arrayToken[NMCOL_DST_ADDR];
             arrayFlatString[index] += ',' + arrayToken[NMCOL_DST_PORT];
-            arrayFlatString[index] += ',' + ((arrayIcmpType[i].indexOf('/') == -1) ? (arrayIcmpType[i] + '/any') : arrayIcmpType[i]);
+            arrayFlatString[index] += ',' + (arrayIcmpType[i].indexOf('/') == -1 ? arrayIcmpType[i] + '/any' : arrayIcmpType[i]);
             arrayFlatString[index] += ',' + arrayToken[NMCOL_ACTIVE];
             ++index;
         }
@@ -3206,11 +3872,12 @@ function flattenObjectAndObjectGroupOfNormalizedAce(arrayNormalizedAcl, funcFlat
 * @param {boolean} boolService
 * @param {boolean} boolPort
 * @param {boolean} boolIcmpType
+* @param {boolean} boolAclElement
 * @param {Array} arrayFlattenedAclOfNetwork
 * @param {Array} arrayFlattenedAcl
 *
 */
-function flattenNormalizedAcl(arrayNormalizedAclToFlatten, boolNetwork, boolProtocol, boolService, boolPort, boolIcmpType, arrayFlattenedAclOfNetwork, arrayFlattenedAcl) {
+function flattenNormalizedAcl(arrayNormalizedAclToFlatten, boolNetwork, boolProtocol, boolService, boolPort, boolIcmpType, boolAclElement, arrayFlattenedAclOfNetwork, arrayFlattenedAcl) {
     arrayFlattenedAclOfNetwork.length = 0;
     arrayFlattenedAcl.length = 0;
 
@@ -3223,7 +3890,11 @@ function flattenNormalizedAcl(arrayNormalizedAclToFlatten, boolNetwork, boolProt
 
             // Save the result that network objects and object-groups were flattened.
             for (let j=0; j<arrayNormalizedAcl.length; ++j) {
-                arrayFlattenedAclOfNetwork.push(arrayNormalizedAcl[j]);
+                let strFlattened = arrayNormalizedAcl[j];
+                if (boolAclElement) {
+                    strFlattened += ',' + toAclElement(arrayNormalizedAcl[j]);
+                }
+                arrayFlattenedAclOfNetwork.push(strFlattened);
             }
         }
         if (boolProtocol) {
@@ -3241,7 +3912,11 @@ function flattenNormalizedAcl(arrayNormalizedAclToFlatten, boolNetwork, boolProt
 
         // Save the result that all objects and object-groups were flattened.
         for (let j=0; j<arrayNormalizedAcl.length; ++j) {
-            arrayFlattenedAcl.push(arrayNormalizedAcl[j]);
+            let strFlattened = arrayNormalizedAcl[j];
+            if (boolAclElement) {
+                strFlattened += ',' + toAclElement(arrayNormalizedAcl[j]);
+            }
+            arrayFlattenedAcl.push(strFlattened);
         }
     }
 }
@@ -3282,19 +3957,29 @@ function isWithin(strAddrWithPrefixLengthToBeLookedUp, strLookupAddr, intLookupA
         }
     }
     if (intLookupAddrType == LOOKUP_ADDRESS_TYPE_IPV4 && strAddrWithPrefixLengthToBeLookedUp.indexOf(':') == -1) { // IPv4.
-        if (strAddrWithPrefixLengthToBeLookedUp.indexOf('-') != -1 && isIPv4WithPrefixLengthIncludedInRange(strLookupAddr, strAddrWithPrefixLengthToBeLookedUp)) { // IPv4 address is within range.
-            return true;
-        }
-        if (isIPv4WithPrefixLengthIncludedInSegment(strLookupAddr, strAddrWithPrefixLengthToBeLookedUp)) { // IPv4 address is within the segment.
-            return true;
+        if (strAddrWithPrefixLengthToBeLookedUp.indexOf('-') != -1) { // The format of the address which is looked up is range format.
+            if (isIPv4WithPrefixLengthIncludedInRange(strLookupAddr, strAddrWithPrefixLengthToBeLookedUp)) { // IPv4 address is within range.
+                return true;
+            }
+        } else if (strAddrWithPrefixLengthToBeLookedUp.indexOf('/') != -1) { // The format of the address which is looked up is CIDR format.
+            if (isIPv4WithPrefixLengthIncludedInSegment(strLookupAddr, strAddrWithPrefixLengthToBeLookedUp)) { // IPv4 address is within the segment.
+                return true;
+            }
+        } else { // The format of the address which is looked up is FQDN.
+            // Nothing to do.
         }
     }
     if (intLookupAddrType == LOOKUP_ADDRESS_TYPE_IPV6 && strAddrWithPrefixLengthToBeLookedUp.indexOf(':') != -1) { // IPv6.
-        if (strAddrWithPrefixLengthToBeLookedUp.indexOf('-') != -1 && isIPv6WithPrefixLengthIncludedInRange(strLookupAddr, strAddrWithPrefixLengthToBeLookedUp)) { // IPv6 address is within range.
-            return true;
-        }
-        if (isIPv6WithPrefixLengthIncludedInSegment(strLookupAddr, strAddrWithPrefixLengthToBeLookedUp)) { // IPv6 address is within the segment.
-            return true;
+        if (strAddrWithPrefixLengthToBeLookedUp.indexOf('-') != -1) { // The format of the address which is looked up is range format.
+            if (isIPv6WithPrefixLengthIncludedInRange(strLookupAddr, strAddrWithPrefixLengthToBeLookedUp)) { // IPv6 address is within range.
+                return true;
+            }
+        } else if (strAddrWithPrefixLengthToBeLookedUp.indexOf('/') != -1) { // The format of the address which is looked up is CIDR format.
+            if (isIPv6WithPrefixLengthIncludedInSegment(strLookupAddr, strAddrWithPrefixLengthToBeLookedUp)) { // IPv6 address is within the segment.
+                return true;
+            }
+        } else { // The format of the address which is looked up is FQDN.
+            // Nothing to do.
         }
     }
     return false;
@@ -3520,13 +4205,14 @@ function async_normalizeAcl(configToFlat, arrayNormalizedAcl) {
 * @param {boolean} boolService
 * @param {boolean} boolPort
 * @param {boolean} boolIcmpType
+* @param {boolean} boolAclElement
 * @param {Array} arrayFlattenedAclOfNetwork
 * @param {Array} arrayFlattenedAcl
 * @return {Object} Promise
 */
-function async_flattenNormalizedAcl(arrayNormalizedAclToFlatten, boolNetwork, boolProtocol, boolService, boolPort, boolIcmpType, arrayFlattenedAclOfNetwork, arrayFlattenedAcl) {
+function async_flattenNormalizedAcl(arrayNormalizedAclToFlatten, boolNetwork, boolProtocol, boolService, boolPort, boolIcmpType, boolAclElement, arrayFlattenedAclOfNetwork, arrayFlattenedAcl) {
     return new Promise((resolve)=>{
-        flattenNormalizedAcl(arrayNormalizedAclToFlatten, boolNetwork, boolProtocol, boolService, boolPort, boolIcmpType, arrayFlattenedAclOfNetwork, arrayFlattenedAcl);
+        flattenNormalizedAcl(arrayNormalizedAclToFlatten, boolNetwork, boolProtocol, boolService, boolPort, boolIcmpType, boolAclElement, arrayFlattenedAclOfNetwork, arrayFlattenedAcl);
         resolve('');
     });
 }
@@ -3598,7 +4284,7 @@ var onmessage = function(e) { // eslint-disable-line no-var
             async_normalizeAcl(e.data[1], g_NormalizedAcl).then(()=>{
                 postMessage([
                     MSG_NORMALIZED,
-                    getArrayAsStrig(g_NormalizedAcl),
+                    g_NormalizedAcl.join('\r\n'),
                 ]);
             });
             break;
@@ -3613,12 +4299,13 @@ var onmessage = function(e) { // eslint-disable-line no-var
                     e.data[3],
                     e.data[4],
                     e.data[5],
+                    e.data[6],
                     arrayFlattenedAcl_Network,
                     g_FlattenedAcl).then(()=>{
                     postMessage([
                         MSG_FLATTENED,
-                        getArrayAsStrig(g_FlattenedAcl),
-                        getArrayAsStrig(arrayFlattenedAcl_Network),
+                        g_FlattenedAcl.join('\r\n'),
+                        arrayFlattenedAcl_Network.join('\r\n'),
                     ]);
                 });
             }
@@ -3630,8 +4317,8 @@ var onmessage = function(e) { // eslint-disable-line no-var
                 async_lookUpAddrList(g_FlattenedAcl, e.data[1], arrayLookupResult, arrayLookupResultEI).then(()=>{
                     postMessage([
                         MSG_LOOKEDUP,
-                        getArrayAsStrig(arrayLookupResult),
-                        getArrayAsStrig(arrayLookupResultEI),
+                        arrayLookupResult.join('\r\n'),
+                        arrayLookupResultEI.join('\r\n'),
                     ]);
                 });
             }
@@ -3652,7 +4339,7 @@ var onmessage = function(e) { // eslint-disable-line no-var
 */
 function getNetworkObjectListAsString() {
     let strOutput = '';
-    for (let key in g_Object_Network) { // eslint-disable-line prefer-const
+    for (const key in g_Object_Network) {
         if (g_Object_Network.hasOwnProperty(key)) {
             strOutput += key + ',' + g_Object_Network[key] + '\r\n';
         }
@@ -3665,7 +4352,7 @@ function getNetworkObjectListAsString() {
 */
 function getServiceObjectListAsString() {
     let strOutput = '';
-    for (let key in g_Object_Service) { // eslint-disable-line prefer-const
+    for (const key in g_Object_Service) {
         if (g_Object_Service.hasOwnProperty(key)) {
             strOutput += key + ',' + g_Object_Service[key] + '\r\n';
         }
@@ -3678,7 +4365,7 @@ function getServiceObjectListAsString() {
 */
 function getNetworkObjectGroupListAsString() {
     let strOutput = '';
-    for (let key in g_ObjectGroup_Network) { // eslint-disable-line prefer-const
+    for (const key in g_ObjectGroup_Network) {
         if (g_ObjectGroup_Network.hasOwnProperty(key)) {
             const array = g_ObjectGroup_Network[key];
             for (let i=0; i<array.length; ++i) {
@@ -3694,7 +4381,7 @@ function getNetworkObjectGroupListAsString() {
 */
 function getServiceObjectGroupListAsString() {
     let strOutput = '';
-    for (let key in g_ObjectGroup_Service) { // eslint-disable-line prefer-const
+    for (const key in g_ObjectGroup_Service) {
         if (g_ObjectGroup_Service.hasOwnProperty(key)) {
             const array = g_ObjectGroup_Service[key];
             for (let i=0; i<array.length; ++i) {
@@ -3710,7 +4397,7 @@ function getServiceObjectGroupListAsString() {
 */
 function getProtocolObjectGroupListAsString() {
     let strOutput = '';
-    for (let key in g_ObjectGroup_Protocol) { // eslint-disable-line prefer-const
+    for (const key in g_ObjectGroup_Protocol) {
         if (g_ObjectGroup_Protocol.hasOwnProperty(key)) {
             const array = g_ObjectGroup_Protocol[key];
             for (let i=0; i<array.length; ++i) {
@@ -3726,7 +4413,7 @@ function getProtocolObjectGroupListAsString() {
 */
 function getIcmpTypeObjectGroupListAsString() {
     let strOutput = '';
-    for (let key in g_ObjectGroup_IcmpType) { // eslint-disable-line prefer-const
+    for (const key in g_ObjectGroup_IcmpType) {
         if (g_ObjectGroup_IcmpType.hasOwnProperty(key)) {
             const array = g_ObjectGroup_IcmpType[key];
             for (let i=0; i<array.length; ++i) {
@@ -3742,25 +4429,13 @@ function getIcmpTypeObjectGroupListAsString() {
 */
 function getPortObjectGroupListAsString() {
     let strOutput = '';
-    for (let key in g_ObjectGroup_Port) { // eslint-disable-line prefer-const
+    for (const key in g_ObjectGroup_Port) {
         if (g_ObjectGroup_Port.hasOwnProperty(key)) {
             const array = g_ObjectGroup_Port[key];
             for (let i=0; i<array.length; ++i) {
                 strOutput += key + ',' + array[i] + '\r\n';
             }
         }
-    }
-    return strOutput;
-}
-
-/**
-* @param {Array} arrayToGet
-* @return {string}
-*/
-function getArrayAsStrig(arrayToGet) {
-    let strOutput = '';
-    for (let i=0; i<arrayToGet.length; ++i) {
-        strOutput += arrayToGet[i] + '\r\n';
     }
     return strOutput;
 }

@@ -13,12 +13,13 @@
 *
 * flatAsaAcl.html
 *
-* Copyright (c) 2019 joelob99
+* Copyright (c) 2019,2020 joelob99
 *
 * Released under the MIT License, see LICENSE.txt.
 *
 * History
 *   2019-12-24: First Release.
+*   2020-01-02: Add ACL element option.
 *
 * ============================================================================
 */
@@ -69,6 +70,7 @@
 <div><input type="checkbox" id="flatten_service"  name="flatten_service"         ><label for="flatten_service">Flatten service objects and service object-groups.</label></div>
 <div><input type="checkbox" id="flatten_port"     name="flatten_port"            ><label for="flatten_port">Flatten port object-groups.</label></div>
 <div><input type="checkbox" id="flatten_icmptype" name="flatten_icmptype"        ><label for="flatten_icmptype">Flatten icmp-type object-groups.</label></div>
+<div><input type="checkbox" id="add_acl_element"  name="add_acl_element"         ><label for="add_acl_element">Add ACL element.</label></div>
 <button type="button" id="run">RUN</button>
 <span id="progress_flattening" class="blink_progress"></span>
 
@@ -226,6 +228,7 @@ function main() {
                         document.FlattenContent.flatten_service.checked,
                         document.FlattenContent.flatten_port.checked,
                         document.FlattenContent.flatten_icmptype.checked,
+                        document.FlattenContent.add_acl_element.checked,
                     ]);
                     break;
                 case MSG_FLATTENED:

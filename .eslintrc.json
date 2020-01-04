@@ -20,6 +20,6 @@
         "key-spacing": "off",
         "no-multi-spaces": "off",
         "spaced-comment": ["error", "always", { "block": { "markers": ["!"], "exceptions": ["*"] }}],
-        "no-unused-vars": ["error", { "varsIgnorePattern": "^onmessage$|AsString$|^debugLog$|^debugAssert$" }]
+        "no-unused-vars": ["error", { "varsIgnorePattern": "^onmessage$|AsString$|^debugLog$|^debugAssert$|^getIPv6CompressedAddrWithPrefixLength$" }]
     }
 }

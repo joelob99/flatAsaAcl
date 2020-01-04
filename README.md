@@ -4,7 +4,7 @@
 
 ## Summary
 
-Because complicate ACL can not understand easy, often desired simple ACL. This script flattens ACL in the Cisco ASA configuration. Also, it can look up the specified addresses in the flattened ACL to confirm whether the addresses match.
+Because complicate ACL can not understand easy, often desired to convert to simple ACL. In some cases, that is requested from only the configuration file. This script flattens ACL in the Cisco ASA configuration. Also, it can look up the specified addresses in the flattened ACL to confirm whether the addresses match.
 
 Note that the ACL flattened can not input to Cisco ASA. It is to make complicate ACL easy to understand.
 
@@ -16,20 +16,21 @@ Open flatAsaAcl.html on Firefox or Chrome, and follows the steps described on th
 
 Flattened ACL is described in the following format.
 
-
 ```
-ACL_NAME {standard|extended} {permit|deny} PROT S_ADDR S_PORT D_ADDR D_PORT I_TPCD {active|inactive}
+ACL_NAME,ACL_LINE,{standard|extended},{permit|deny},PROT,S_ADDR,S_PORT,D_ADDR,D_PORT,I_TPCD,{active|inactive}[,ACL_ELEMENT]
 
-  ACL_NAME   access-list name
-  PROT       protocol name or number
-  S_ADDR     source network address
-  S_PORT     source port condition
-  D_ADDR     destination network address
-  D_PORT     destination port condition
-  I_TPCD     icmp-type and icmp-code
+  ACL_NAME      access-list name
+  ACL_LINE      access-list line number
+  PROT          protocol name or number
+  S_ADDR        source network address
+  S_PORT        source port condition
+  D_ADDR        destination network address
+  D_PORT        destination port condition
+  I_TPCD        icmp-type and icmp-code
+  ACL_ELEMENT   access-list element
 ```
 
-  - ACL_NAME is the same as configuration.
+  - ACL_NAME and ACL_LINE are the same as configuration.
   - PROT format is the following. The protocol name except 'ip' is converted to the number. If the protocol name is 'ip', it is not converted.
 
         'NN'
@@ -66,6 +67,8 @@ ACL_NAME {standard|extended} {permit|deny} PROT S_ADDR S_PORT D_ADDR D_PORT I_TP
         'any4': '0.0.0.0/0'
         'any6': '0000:0000:0000:0000:0000:0000:0000:0000/0'
 
+  - ACL_ELEMENT is the access-list command representation. This is not the same as the list shown by 'show access-list' command.
+
 Flattening changes object and object-group of ACE to those values. If an object-group has two or more objects, the ACE is expanded to the same number as objects in the object-group. For example, when object, object-group, and ACL are defined in the configuration as following, the ACL is expanded two entries.
 
 - Configuration:
@@ -76,13 +79,13 @@ Flattening changes object and object-group of ACE to those values. If an object-
        network-object host 10.0.0.1
       object-group network OGRP2
        network-object host 10.1.1.1
-       object-group network OGRP1
+       group-object OGRP1
       access-list ACL1 extended permit tcp object OBJ1 object-group OGRP2 eq www
 
 - Flattend ACL:
 
-      ACL1 extended permit tcp 192.168.0.1/32 eq/any 10.1.1.1/32 eq/80 -/- active
-      ACL1 extended permit tcp 192.168.0.1/32 eq/any 10.0.0.1/32 eq/80 -/- active
+      ACL1,1,extended,permit,6,192.168.0.1/32,eq/any,10.1.1.1/32,eq/80,-/-,active,access-list ACL1 line 1 extended permit tcp host 192.168.0.1 host 10.1.1.1 eq www
+      ACL1,1,extended,permit,6,192.168.0.1/32,eq/any,10.0.0.1/32,eq/80,-/-,active,access-list ACL1 line 1 extended permit tcp host 192.168.0.1 host 10.0.0.1 eq www
 
 ## How to use scripts.
 
