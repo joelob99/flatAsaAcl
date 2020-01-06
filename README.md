@@ -98,7 +98,7 @@ The following is a sample code for flattening ACL.
     makeAsaObjectGroupList(textConfig);
     makeProtocolTypeBitList();
     normalizeAcl(textConfig, temp);
-    flattenNormalizedAcl(temp, true, true, true, true, true, resultNetwork, resultAll);
+    flattenNormalizedAcl(temp, true, true, true, true, true, true, resultNetwork, resultAll);
 
 After flattened ACL, it can look up addresses by calling lookUpAddrList function.
 
