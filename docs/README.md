@@ -10,6 +10,7 @@ Note that the ACL flattened can not input to Cisco ASA. It is to make complicate
 
 ## Getting Started
 
+[Download the ZIP file](https://github.com/joelob99/flatAsaAcl) from the branch and extracts it.
 Open flatAsaAcl.html on Firefox or Chrome, and follows the steps described on the page.
 
 ## Flattened ACL
