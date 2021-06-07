@@ -13,13 +13,14 @@
 *
 * flatAsaAcl.html
 *
-* Copyright (c) 2019,2020 joelob99
+* Copyright (c) 2019,2020,2021 joelob99
 *
 * Released under the MIT License, see LICENSE.txt.
 *
 * History
 *   2019-12-24: First Release.
-*   2020-01-02: Add ACL element option.
+*   2020-01-02: Add 'Add ACL element' option.
+*   2021-06-07: Add ACL name filters for lookup result Textareas.
 *
 * ============================================================================
 */
@@ -134,9 +135,13 @@ www.example.com,,from FQDN
 <span id="progress_searching" class="blink_progress"></span>
 
 <p>Matched entries</p>
+<div><select id="filter_acl_name"></select></div>
 <textarea name="lookup_result" rows="10" readonly style="background-color: whitesmoke;"></textarea>
+<textarea name="lookup_result_data_stored" rows="10" readonly style="display: none;"></textarea>
 <p>Matched entries (exclued ineffectual entries)</p>
+<div><select id="filter_acl_name_EI"></select></div>
 <textarea name="lookup_resultEI" rows="10" readonly style="background-color: whitesmoke;"></textarea>
+<textarea name="lookup_resultEI_data_stored" rows="10" readonly style="display: none;"></textarea>
 </form>
 
 <script>
@@ -150,6 +155,8 @@ const MSG_FLATTEN    = 5;
 const MSG_FLATTENED  = 6;
 const MSG_LOOKUP     = 7;
 const MSG_LOOKEDUP   = 8;
+
+const MENU_ALL_ACL = 'All ACLs'
 
 let workerFlatAcl = null;
 
@@ -191,6 +198,68 @@ function deleteWorker() {
 function getFileName(strFileNameOrFullPath) {
     const array = strFileNameOrFullPath.replace(/[\\]/g, '/').match(/\/([^\/]*)$/);
     return (array ? array[1] : strFileNameOrFullPath);
+}
+
+/**
+* This function makes the ACL name menu and sets it into the element id's
+* select element.
+*
+* @param {Object} textareaDataStored
+* @param {string}
+*   strAclNameSelectElementId
+*       The ACL name select element to set the ACL name menu.
+*/
+function make_acl_name_menu(textareaDataStored, strAclNameSelectElementId) {
+    let arrayAclName = [];
+    const arrayText = textareaDataStored.value.split('\n');
+    for (let i=0; i<arrayText.length; ++i) {
+        const arrayColumn = arrayText[i].split(',');
+        arrayAclName.push(arrayColumn[1]);
+    }
+    let arrayUniqAclName = Array.from(new Set(arrayAclName));
+    arrayUniqAclName.unshift(MENU_ALL_ACL);
+
+    /* See https://developer.mozilla.org/en-US/docs/Web/API/Node/removeChild
+    */
+    let selectAclName = document.getElementById(strAclNameSelectElementId);
+    while (selectAclName.firstChild){
+        selectAclName.removeChild(selectAclName.firstChild);
+    }
+
+    for (let i=0; i<arrayUniqAclName.length; ++i) {
+        let option = document.createElement('option');
+        option.setAttribute('value', arrayUniqAclName[i]);
+        option.innerHTML = arrayUniqAclName[i];
+        selectAclName.appendChild(option);
+    }
+}
+
+/**
+* This function refreshes the lookup result Textarea by selected the ACL name
+* in the ACL name select element.
+*
+* @param {Object} textareaDataStored
+* @param {string} strAclNameSelectElementId
+* @param {Object} textareaLookupResult
+*/
+function refresh_lookup_result(textareaDataStored, strAclNameSelectElementId, textareaLookupResult) {
+    textareaLookupResult.value = '';
+
+    let strSelectedAclName = document.getElementById(strAclNameSelectElementId).value;
+
+    if (strSelectedAclName === MENU_ALL_ACL) {
+        textareaLookupResult.value = textareaDataStored.value;
+    } else {
+        let arrayAcl = [];
+        const arrayText = textareaDataStored.value.split('\n');
+        for (let i=0; i<arrayText.length; ++i) {
+            const arrayColumn = arrayText[i].split(',');
+            if (arrayColumn[1] === strSelectedAclName) {
+                arrayAcl.push(arrayText[i]);
+            }
+        }
+        textareaLookupResult.value = arrayAcl.join('\n');
+    }
 }
 
 /**
@@ -237,9 +306,15 @@ function main() {
                     document.getElementById('progress_flattening').textContent = '';
                     break;
                 case MSG_LOOKEDUP:
-                    document.LookupContent.lookup_result.value = e.data[1];
-                    document.LookupContent.lookup_resultEI.value = e.data[2];
+                    document.LookupContent.lookup_result_data_stored.value = e.data[1];
+                    document.LookupContent.lookup_resultEI_data_stored.value = e.data[2];
                     document.getElementById('progress_searching').textContent = '';
+                    make_acl_name_menu(document.LookupContent.lookup_result_data_stored  , 'filter_acl_name');
+                    make_acl_name_menu(document.LookupContent.lookup_resultEI_data_stored, 'filter_acl_name_EI');
+                    document.getElementById('filter_acl_name').options[0].selected = true;
+                    document.getElementById('filter_acl_name').dispatchEvent(new Event('change'));
+                    document.getElementById('filter_acl_name_EI').options[0].selected = true;
+                    document.getElementById('filter_acl_name_EI').dispatchEvent(new Event('change'));
                     break;
                 }
             } else {
@@ -292,12 +367,22 @@ function main() {
             if (fileReaderLookup.result !== '') {
                 document.getElementById('progress_searching').textContent = 'In searching...';
                 document.LookupContent.lookup_result.value = '';
+                document.LookupContent.lookup_result_data_stored.value = '';
                 document.LookupContent.lookup_resultEI.value = '';
+                document.LookupContent.lookup_resultEI_data_stored.value = '';
                 workerFlatAcl.postMessage([
                     MSG_LOOKUP,
                     document.LookupContent.lookup_list.value,
                 ]);
             }
+        });
+
+        document.getElementById('filter_acl_name').addEventListener('change', function(evtChange) {
+            refresh_lookup_result(document.LookupContent.lookup_result_data_stored, 'filter_acl_name', document.LookupContent.lookup_result);
+        });
+
+        document.getElementById('filter_acl_name_EI').addEventListener('change', function(evtChange) {
+            refresh_lookup_result(document.LookupContent.lookup_resultEI_data_stored, 'filter_acl_name_EI', document.LookupContent.lookup_resultEI);
         });
     }
 }

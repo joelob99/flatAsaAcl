@@ -5,7 +5,7 @@
 *
 * flatAsaAcl.js
 *
-* Copyright (c) 2019,2020 joelob99
+* Copyright (c) 2019,2020,2021 joelob99
 *
 * Released under the MIT License, see LICENSE.txt.
 *
@@ -16,13 +16,15 @@
 *               - Fix some udp port does not convert to the number.
 *               - Add ACL line number and ACL element columns to the flattened
 *                 ACL.
+*   2021-06-07: Update to v0.9.2.
+*               - Support names.
 *
 * @file This script flattens ACL in the Cisco ASA configuration. Also, it can
 *       look up the specified addresses in the flattened ACL to confirm
 *       whether the addresses are match.
-* @copyright joelob99 2019,2020
+* @copyright joelob99 2019,2020,2021
 * @license MIT License
-* @version v0.9.1
+* @version v0.9.2
 *
 * ============================================================================
 */
@@ -487,10 +489,11 @@ const t_SupportedProtocolTypeBit = {
 };
 
 /*
-* Objects to save Cisco ASA object list and object-group list.
+* Objects to save Cisco ASA's name list, object list, and object-group list.
 *
 * @const {Object}
 */
+let g_Name = {};
 let g_Object_Network = {};
 let g_Object_Service = {};
 let g_ObjectGroup_Network = {};
@@ -1961,15 +1964,24 @@ function extractPortConditionFromAce(arrayToken, index, intPortType) {
 *   next index of the ACE token.
 *
 * @example
+*   Variables state when calls.
+*   ---------------------------------------------------------------------------------------
+*   g_Name['ADDR1'] = { address:'y.y.y.y', description:'' }
+*   g_Name['ADDR2'] = { address:'yyyy:yyyy:yyyy:yyyy:yyyy:yyyy:yyyy:yyyy', description:'' }
+*
 *   arrayToken            index    Return['value']                               Return['next_index']
 *   -------------------------------------------------------------------------------------------------
 *   ['host','x.x.x.x']    0     -> 'x.x.x.x/32'                                  2
 *   ['host','x:x:x::x']   0     -> 'xxxx:xxxx:xxxx:xxxx:xxxx:xxxx:xxxx:xxxx/128' 2
+*   ['host','ADDR1']      0     -> 'y.y.y.y/32'                                  2
+*   ['host','ADDR2']      0     -> 'yyyy:yyyy:yyyy:yyyy:yyyy:yyyy:yyyy:yyyy/128' 2
 *   ['any']               0     -> '0/0'                                         1
 *   ['any4']              0     -> '0.0.0.0/0'                                   1
 *   ['any6']              0     -> '0000:0000:0000:0000:0000:0000:0000:0000/0'   1
 *   ['x.x.x.x','m.m.m.m'] 0     -> 'x.x.x.x/nn'                                  2
+*   ['ADDR1','m.m.m.m']   0     -> 'y.y.y.y/nn'                                  2
 *   ['x:x:x::x/nn']       0     -> 'xxxx:xxxx:xxxx:xxxx:xxxx:xxxx:xxxx:xxxx/nn'  1
+*   ['ADDR2/nn']          0     -> 'yyyy:yyyy:yyyy:yyyy:yyyy:yyyy:yyyy:yyyy/nn'  1
 *   []                    0     -> ''                                            0
 */
 function extractIPAddrFromAce(arrayToken, index) {
@@ -1979,7 +1991,12 @@ function extractIPAddrFromAce(arrayToken, index) {
         switch (arrayToken[index]) {
         case 'host':
             // Host address has to be IPv4 or IPv6. FQDN can not configure on ACE.
-            strIPAddr = normalizeHostAddr(arrayToken[++index]);
+            ++index;
+            if (g_Name[arrayToken[index]]) {
+                strIPAddr = g_Name[arrayToken[index]].address + (g_Name[arrayToken[index]].address.indexOf(':') == -1 ? '/32' : '/128');
+            } else {
+                strIPAddr = normalizeHostAddr(arrayToken[index]);
+            }
             ++index;
             break;
         case 'any':
@@ -1996,11 +2013,16 @@ function extractIPAddrFromAce(arrayToken, index) {
             break;
         default:
             // 'IPv4_address IPv4_mask' or 'IPv6_address/IPv6_prefix'
-            if (arrayToken[index].indexOf(':') == -1) { // IPv4.
-                strIPAddr = getIPv4AddrWithPrefixLength(arrayToken[index], arrayToken[index+1]);
+            if (arrayToken[index].indexOf('/') == -1) { // IPv4.
+                strIPAddr = getIPv4AddrWithPrefixLength(g_Name[arrayToken[index]] ? g_Name[arrayToken[index]].address : arrayToken[index], arrayToken[index+1]);
                 index += 2;
             } else { // IPv6.
-                strIPAddr = getIPv6FullRepresentedAddrWithPrefixLength(arrayToken[index]);
+                let arrayStrIPv6 = arrayToken[index].split('/');
+                if (g_Name[arrayStrIPv6[0]]) {
+                    strIPAddr = g_Name[arrayStrIPv6[0]].address + '/' + arrayStrIPv6[1];
+                } else {
+                    strIPAddr = getIPv6FullRepresentedAddrWithPrefixLength(arrayToken[index]);
+                }
                 ++index;
             }
         }
@@ -2025,13 +2047,22 @@ function extractIPAddrFromAce(arrayToken, index) {
 *   next index of the object-group token.
 *
 * @example
+*   Variables state when calls.
+*   ---------------------------------------------------------------------------------------
+*   g_Name['ADDR1'] = { address:'y.y.y.y', description:'' }
+*   g_Name['ADDR2'] = { address:'yyyy:yyyy:yyyy:yyyy:yyyy:yyyy:yyyy:yyyy', description:'' }
+*
 *   arrayToken             index    Return['value']                               Return['next_index']
 *   --------------------------------------------------------------------------------------------------
 *   ['host','x.x.x.x']     0     -> 'x.x.x.x/32'                                  2
 *   ['host','x:x:x::x']    0     -> 'xxxx:xxxx:xxxx:xxxx:xxxx:xxxx:xxxx:xxxx/128' 2
 *   ['host','example.com'] 0     -> 'example.com'                                 2
+*   ['host','ADDR1']       0     -> 'y.y.y.y/32'                                  2
+*   ['host','ADDR2']       0     -> 'yyyy:yyyy:yyyy:yyyy:yyyy:yyyy:yyyy:yyyy/128' 2
 *   ['x.x.x.x','m.m.m.m']  0     -> 'x.x.x.x/nn'                                  2
+*   ['ADDR1','m.m.m.m']    0     -> 'y.y.y.y/nn'                                  2
 *   ['x:x:x::x/nn']        0     -> 'xxxx:xxxx:xxxx:xxxx:xxxx:xxxx:xxxx:xxxx/nn'  1
+*   ['ADDR2/nn']           0     -> 'yyyy:yyyy:yyyy:yyyy:yyyy:yyyy:yyyy:yyyy/nn'  1
 *   ['example.com']        0     -> 'example.com'                                 1
 *   []                     0     -> ''                                            0
 */
@@ -2041,18 +2072,28 @@ function extractIPAddrFromNetworkObjectGroup(arrayToken, index) {
     if (arrayToken[index]) {
         if (arrayToken[index] === 'host') {
             // Host address can configure IPv4, IPv6 and FQDN.
-            strIPAddr = normalizeHostAddr(arrayToken[++index]);
+            ++index;
+            if (g_Name[arrayToken[index]]) {
+                strIPAddr = g_Name[arrayToken[index]].address + (g_Name[arrayToken[index]].address.indexOf(':') == -1 ? '/32' : '/128');
+            } else {
+                strIPAddr = normalizeHostAddr(arrayToken[index]);
+            }
             ++index;
         } else {
             // 'IPv4_address IPv4_mask', 'IPv6_address/IPv6_prefix' or 'FQDN'.
-            if (arrayToken[index].indexOf(':') != -1) { // IPv6.
-                strIPAddr = getIPv6FullRepresentedAddrWithPrefixLength(arrayToken[index]);
+            if (arrayToken[index].indexOf('/') != -1) { // IPv6.
+                let arrayStrIPv6 = arrayToken[index].split('/');
+                if (g_Name[arrayStrIPv6[0]]) {
+                    strIPAddr = g_Name[arrayStrIPv6[0]].address + '/' + arrayStrIPv6[1];
+                } else {
+                    strIPAddr = getIPv6FullRepresentedAddrWithPrefixLength(arrayToken[index]);
+                }
                 ++index;
             } else if (!arrayToken[index+1]) { // FQDN.
                 strIPAddr = arrayToken[index];
                 ++index;
             } else {
-                strIPAddr = getIPv4AddrWithPrefixLength(arrayToken[index], arrayToken[index+1]);
+                strIPAddr = getIPv4AddrWithPrefixLength(g_Name[arrayToken[index]] ? g_Name[arrayToken[index]].address : arrayToken[index], arrayToken[index+1]);
                 index += 2;
             }
         }
@@ -2081,9 +2122,13 @@ function extractIPAddrFromNetworkObjectGroup(arrayToken, index) {
 *   arrayToken                                index    Return['value']                               Return['next_index']
 *   ---------------------------------------------------------------------------------------------------------------------
 *   ['x.x.x.x','m.m.m.m']                     0     -> 'x.x.x.x/nn'                                  2
+*   ['ADDR1','m.m.m.m']                       0     -> 'y.y.y.y/nn'                                  2
 *   ['x:x:x::x/nn']                           0     -> 'xxxx:xxxx:xxxx:xxxx:xxxx:xxxx:xxxx:xxxx/nn'  1
+*   ['ADDR2/nn']                              0     -> 'yyyy:yyyy:yyyy:yyyy:yyyy:yyyy:yyyy:yyyy/nn'  1
 *   ['host','x.x.x.x']                        0     -> 'x.x.x.x/32'                                  2
 *   ['host','x:x:x::x']                       0     -> 'xxxx:xxxx:xxxx:xxxx:xxxx:xxxx:xxxx:xxxx/128' 2
+*   ['host','ADDR1']                          0     -> 'y.y.y.y/32'                                  2
+*   ['host','ADDR2']                          0     -> 'yyyy:yyyy:yyyy:yyyy:yyyy:yyyy:yyyy:yyyy/128' 2
 *   ['any']                                   0     -> '0/0'                                         1
 *   ['any4']                                  0     -> '0.0.0.0/0'                                   1
 *   ['any6']                                  0     -> '0000:0000:0000:0000:0000:0000:0000:0000/0'   1
@@ -2268,6 +2313,36 @@ function normalizeHostAddr(strHostAddr) {
 }
 
 /**
+* This function normalizes the network address of a name and returns the
+* normalized string. IPv6 address is adapted to the full represented. IPv4
+* address and FQDN are not changed.
+*
+* @param {Array} arrayToken
+* @param {number} index
+* @return {string} The normalized name.
+*
+* @example
+*   arrayToken       index    Return
+*   -------------------------------------------------------------------
+*   ['x.x.x.x']      0     -> 'x.x.x.x'
+*   ['x:x:x::x']     0     -> 'xxxx:xxxx:xxxx:xxxx:xxxx:xxxx:xxxx:xxxx'
+*   ['example.com']  0     -> 'example.com'
+*   ['UNKNOWN']      0     -> 'UNKNOWN'
+*   []               0     -> ''
+*/
+function normalizeNameAddr(arrayToken, index) {
+    let strNormalizedNameAddr = '';
+    if (arrayToken[index]) {
+        if (arrayToken[index].indexOf(':') != -1) { // IPv6.
+            strNormalizedNameAddr = getIPv6FullRepresentedAddr(arrayToken[index]);
+        } else { // IPv4 or others.
+            strNormalizedNameAddr = arrayToken[index];
+        }
+    }
+    return strNormalizedNameAddr;
+}
+
+/**
 * This function normalizes the network address of a network object and returns
 * the normalized string. IPv4 address of host and subnet are changed to CIDR
 * format. The IP addresses of the range are combined with '-'. IPv6 address is
@@ -2286,7 +2361,15 @@ function normalizeHostAddr(strHostAddr) {
 *   ['range','x.x.x.x','y.y.y.y']    -> 'x.x.x.x-y.y.y.y'
 *   ['range','x:x:x::x','y:y:y::yy'] -> 'xxxx:xxxx:xxxx:xxxx:xxxx:xxxx:xxxx:xxxx-yyyy:yyyy:yyyy:yyyy:yyyy:yyyy:yyyy:yyyy'
 *   ['fqdn','example.com']           -> 'example.com'
+*   ['fqdn','v4','example.com']      -> 'example.com'
+*   ['fqdn','v6','example.com']      -> 'example.com'
 *   ['nat']                          -> 'undefined'
+*   ['host']                         -> 'undefined'
+*   ['subnet']                       -> 'undefined'
+*   ['range']                        -> 'undefined'
+*   ['fqdn']                         -> 'undefined'
+*   ['fqdn','v4']                    -> 'undefined'
+*   ['fqdn','v6']                    -> 'undefined'
 *   ['UNKNOWN']                      -> 'UNKNOWN'
 *   []                               -> ''
 */
@@ -2296,24 +2379,40 @@ function normalizeNetworkObject(arrayToken) {
         switch (arrayToken[0]) {
         case 'host':
             // Host address has to be IPv4 and IPv6. FQDN can not configure on network object.
-            strNormalizedNetworkObject = normalizeHostAddr(arrayToken[1]);
+            strNormalizedNetworkObject = arrayToken[1] ? normalizeHostAddr(arrayToken[1]) : 'undefined';
             break;
         case 'subnet':
-            if (arrayToken[1].indexOf(':') == -1) { // IPv4.
-                strNormalizedNetworkObject = getIPv4AddrWithPrefixLength(arrayToken[1], arrayToken[2]);
+            if (arrayToken[1]) {
+                if (arrayToken[1].indexOf(':') == -1) { // IPv4.
+                    strNormalizedNetworkObject = getIPv4AddrWithPrefixLength(arrayToken[1], arrayToken[2]);
+                } else {
+                    strNormalizedNetworkObject = getIPv6FullRepresentedAddrWithPrefixLength(arrayToken[1]);
+                }
             } else {
-                strNormalizedNetworkObject = getIPv6FullRepresentedAddrWithPrefixLength(arrayToken[1]);
+                strNormalizedNetworkObject = 'undefined';
             }
             break;
         case 'range':
-            if (arrayToken[1].indexOf(':') == -1) { // IPv4.
-                strNormalizedNetworkObject = arrayToken[1] + '-' + arrayToken[2];
-            } else { // IPv6.
-                strNormalizedNetworkObject = getIPv6FullRepresentedAddr(arrayToken[1]) + '-' + getIPv6FullRepresentedAddr(arrayToken[2]);
+            if (arrayToken[1]) {
+                if (arrayToken[1].indexOf(':') == -1) { // IPv4.
+                    strNormalizedNetworkObject = arrayToken[1] + '-' + arrayToken[2];
+                } else { // IPv6.
+                    strNormalizedNetworkObject = getIPv6FullRepresentedAddr(arrayToken[1]) + '-' + getIPv6FullRepresentedAddr(arrayToken[2]);
+                }
+            } else {
+                strNormalizedNetworkObject = 'undefined';
             }
             break;
         case 'fqdn':
-            strNormalizedNetworkObject = (arrayToken[1] === 'v4' || arrayToken[1] === 'v6') ? arrayToken[2] : arrayToken[1];
+            if (arrayToken[1]) {
+                if (arrayToken[1] === 'v4' || arrayToken[1] === 'v6') {
+                    strNormalizedNetworkObject = arrayToken[2] ? arrayToken[2] : 'undefined';
+                } else {
+                    strNormalizedNetworkObject = arrayToken[1];
+                }
+            } else {
+                strNormalizedNetworkObject = 'undefined';
+            }
             break;
         case 'nat':
             // TODO: Support nat address type.
@@ -2452,9 +2551,80 @@ function normalizeServiceObject(arrayToken, index) {
 
 /*
 * ============================================================================
-* Object and Object-group list
+* Name, Object, and Object-group list
 * ============================================================================
 */
+
+/**
+* This function normalizes the ip address of the all names in configuration
+* text. All normalized ip addresses are saved into g_Name. IPv4 address is not
+* changed. Non-ip address, such as FQDN, is saved as is.
+* See normalizeNameAddr function for detail.
+*
+* @param {string} configToFlat
+*
+* @example
+*   configToFlat
+*   ------------------------------------------------
+*   name 192.168.0.1 ADDR1
+*   name 192.168.0.0 ADDR2 description IPv4 Segment.
+*   name 2001:db8::1 ADDR3
+*   name 2001:db8:: ADDR4 description IPv6 Segment.
+*   name example.com ADDR5
+*   name UNKNOWN ADDR6 description Unknown address.
+*   name NoName
+*   name
+*
+*      Results of g_Name
+*   -------------------------------------------------------------------------------------------------------
+*   -> g_Name['ADDR1'] = { address:'192.168.0.1', description:'' }
+*      g_Name['ADDR2'] = { address:'192.168.0.0', description:'IPv4 Segment.' }
+*      g_Name['ADDR3'] = { address:'2001:0db8:0000:0000:0000:0000:0000:0001', description:'' }
+*      g_Name['ADDR4'] = { address:'2001:0db8:0000:0000:0000:0000:0000:0000', description:'IPv6 Segment.' }
+*      g_Name['ADDR5'] = { address:'example.com', description:'' }
+*      g_Name['ADDR6'] = { address:'UNKNOWN', description:'Unknown address.' }
+*/
+function makeAsaNameList(configToFlat) {
+    const arrayText = configToFlat.split(/\r\n|\r|\n/);
+
+    g_Name = {};
+
+    for (let i=0; i<arrayText.length; ++i) {
+        let strLine = arrayText[i];
+
+        // Skip if white line.
+        if (strLine.length == 0) {
+            continue;
+        }
+
+        // Extract the head character of the line.
+        const strHeadChar = strLine.substring(0, 1);
+
+        // Skip if comment line.
+        if (strHeadChar === '!') {
+            continue;
+        }
+
+        // Trim a line feed at the tail and trim white spaces at both head and tail.
+        strLine = strLine.trim();
+
+        // Split by whitespaces.
+        const arrayToken = strLine.split(/\s+/);
+
+        // Find the 'name' line.
+        if (arrayToken[0] === 'name') {
+            let strDesc = '';
+            if (arrayToken[4]) {
+                strDesc = strLine.substring(strLine.indexOf('description') + 12);
+            }
+            if (arrayToken[2]) {
+                g_Name[arrayToken[2]] = { address: normalizeNameAddr(arrayToken, 1), description: strDesc };
+            }
+        } else {
+            // Skip if not the name line.
+        }
+    }
+}
 
 /**
 * This function normalizes all network objects and service objects in
@@ -2598,6 +2768,13 @@ function makeAsaObjectList(configToFlat) {
 * @param {string} configToFlat
 *
 * @example
+*   Variables state when calls.
+*   ---------------------------------------------------------------------------------------
+*   g_Name['NAME11'] = { address:'192.168.1.1', description:'' }
+*   g_Name['NAME12'] = { address:'192.168.1.0', description:'' }
+*   g_Name['NAME21'] = { address:'2001:0db8:1001:1002:1003:1004:1005:1006', description:'' }
+*   g_Name['NAME22'] = { address:'2001:0db8:1001:1002:0000:0000:0000:0000', description:'' }
+*
 *   configToFlat
 *   ------------------------------------------------
 *   object-group protocol PROTG1
@@ -2608,6 +2785,10 @@ function makeAsaObjectList(configToFlat) {
 *    network-object host 192.168.0.1
 *    network-object 2001:db8::/64
 *    network-object example.com
+*    network-object host NAME11
+*    network-object NAME12 255.255.255.0
+*    network-object host NAME21
+*    network-object NAME22/64
 *   object-group service SRVCG1
 *    service-object tcp
 *    service-object tcp-udp source range 20001 20199
@@ -2617,10 +2798,10 @@ function makeAsaObjectList(configToFlat) {
 *    port-object range http 81
 *
 *      Results of g_ObjectGroup_Protocol, g_ObjectGroup_IcmpType, g_ObjectGroup_Network, g_ObjectGroup_Service, and g_ObjectGroup_Port
-*   ------------------------------------------------------------------------------------------------------------------------------------------
+*   ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 *   -> g_ObjectGroup_Protocol['PROTG1'] = ['0']
 *      g_ObjectGroup_IcmpType['ICMPG1'] = ['8']
-*      g_ObjectGroup_Network['ADDRG1']  = ['192.168.0.1/32', '2001:0db8:0000:0000:0000:0000:0000:0000/64', 'example.com']
+*      g_ObjectGroup_Network['ADDRG1']  = ['192.168.0.1/32', '2001:0db8:0000:0000:0000:0000:0000:0000/64', 'example.com', '192.168.1.1/32', '192.168.1.0/24', '2001:0db8:1001:1002:1003:1004:1005:1006/128', '2001:0db8:1001:1002:0000:0000:0000:0000/64']
 *      g_ObjectGroup_Service['SRVCG1']  = ['6/eq/any/eq/any', '6/range/20001-20199/eq/any', '17/range/20001-20199/eq/any', '17/eq/any/gt/514']
 *      g_ObjectGroup_Port['PORTG1']     = ['eq/0', 'range/80-81']
 */
@@ -4168,6 +4349,17 @@ function lookUpAddrList(arrayNormalizedAclToBeLookedUp, listOfLookUpAddr, arrayR
 * @param {string} configToFlat
 * @return {Object} Promise
 */
+function async_makeAsaNameList(configToFlat) {
+    return new Promise((resolve)=>{
+        makeAsaNameList(configToFlat);
+        resolve('');
+    });
+}
+
+/**
+* @param {string} configToFlat
+* @return {Object} Promise
+*/
 function async_makeAsaObjectList(configToFlat) {
     return new Promise((resolve)=>{
         makeAsaObjectList(configToFlat);
@@ -4259,21 +4451,26 @@ var onmessage = function(e) { // eslint-disable-line no-var
     if (e.data[0]) {
         switch (e.data[0]) {
         case MSG_MAKE_LIST:
-            async_makeAsaObjectList(e.data[1]).then(()=>{
-                outputNetworkObject();
-                outputServiceObject();
+            async_makeAsaNameList(e.data[1]).then(()=>{
+                outputName();
 
-                async_makeAsaObjectGroupList(e.data[1]).then(()=>{
-                    outputNetworkObjectGroup();
-                    outputServiceObjectGroup();
-                    outputProtocolObjectGroup();
-                    outputPortObjectGroup();
+                async_makeAsaObjectList(e.data[1]).then(()=>{
+                    outputNetworkObject();
+                    outputServiceObject();
 
-                    postMessage([
-                        MSG_MADE_LIST,
-                        getNetworkObjectListAsString(),
-                        getNetworkObjectGroupListAsString(),
-                    ]);
+                    async_makeAsaObjectGroupList(e.data[1]).then(()=>{
+                        outputNetworkObjectGroup();
+                        outputServiceObjectGroup();
+                        outputProtocolObjectGroup();
+                        outputPortObjectGroup();
+
+                        postMessage([
+                            MSG_MADE_LIST,
+                            //getNameListAsString(),
+                            getNetworkObjectListAsString(),
+                            getNetworkObjectGroupListAsString(),
+                        ]);
+                    });
                 });
             });
             break;
@@ -4333,6 +4530,19 @@ var onmessage = function(e) { // eslint-disable-line no-var
 * ============================================================================
 * ============================================================================
 */
+
+/**
+* @return {string}
+*/
+function getNameListAsString() {
+    let strOutput = '';
+    for (const key in g_Name) {
+        if (g_Name.hasOwnProperty(key)) {
+            strOutput += key + ',' + JSON.stringify(g_Name[key]) + '\r\n';
+        }
+    }
+    return strOutput;
+}
 
 /**
 * @return {string}
@@ -4445,6 +4655,12 @@ function getPortObjectGroupListAsString() {
 * Debug code
 * ============================================================================
 */
+/**
+*/
+function outputName() {
+    debugLog(`--- Name ---`);
+    debugLog(g_Name);
+}
 /**
 */
 function outputNetworkObject() {
